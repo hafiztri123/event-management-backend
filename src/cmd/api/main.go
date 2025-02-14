@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -11,11 +12,17 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/hafiztri123/src/internal/delivery/handler"
+	handlerImplementation "github.com/hafiztri123/src/internal/delivery/handler/implementation"
 	"github.com/hafiztri123/src/internal/pkg/config"
 	"github.com/hafiztri123/src/internal/pkg/database"
+	customMiddleware "github.com/hafiztri123/src/internal/pkg/middleware"
+	"github.com/hafiztri123/src/internal/repository/implementation"
 	"github.com/hafiztri123/src/internal/repository/postgres"
+	serviceImplementation "github.com/hafiztri123/src/internal/service/implementation"
 	"gorm.io/gorm"
 )
+
 
 
 func main(){
@@ -23,8 +30,12 @@ func main(){
 	db := loadDatabase(&cfg.Database)
 	startMigration(db)
 	router := chi.NewRouter()
+	authMiddleware := customMiddleware.NewAuthMiddleware(cfg.Auth.JWTSecret)
 	applyMiddleware(router)
+	authHandler := authHandlerInit(db, cfg)
+	authRouteInit(authHandler, router)
 	healthRouteInit(router)
+	proctedTestRouteInit(router, *authMiddleware)
 	startServer(router)
 
 
@@ -110,4 +121,30 @@ func loadDatabase(cfg *config.DatabaseConfig) *gorm.DB {
 func startMigration(db *gorm.DB) {
 	log.Println("[OK] start migration")
 	postgres.RunMigrations(db)
+}
+
+func authHandlerInit(db *gorm.DB, cfg *config.Config) handler.AuthHandler {
+	log.Println("[OK] auth handler initialization")
+	userRepo :=  repositoryImplementation.NewUserRepository(db)
+	authService := serviceImplementation.NewAuthService(userRepo, &cfg.Auth)
+	fmt.Println(cfg.Auth)
+	authHandler := handlerImplementation.NewAuthHandler(authService)
+	return authHandler
+}
+
+func authRouteInit(authHandler handler.AuthHandler, router *chi.Mux) {
+	log.Println("[OK] authentication route initialization")
+	router.Post("/api/v1/auth/register", authHandler.Register)
+	router.Post("/api/v1/auth/login", authHandler.Login)
+}
+
+func proctedTestRouteInit(router *chi.Mux, authMiddleware customMiddleware.AuthMiddleware){
+	router.Group(func(r chi.Router) {
+		r.Use(authMiddleware.Authenticate)
+		r.Get("/test",func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("This is protected"))
+
+		})
+	})
 }

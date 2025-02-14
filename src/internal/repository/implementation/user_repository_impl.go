@@ -1,4 +1,4 @@
-package implementation
+package repositoryImplementation
 
 import (
 	"errors"
@@ -64,4 +64,13 @@ func (r *userRepository) Delete(id string) error {
 		}
 		return nil
 	})
+}
+
+func (r *userRepository) IsEmailUnique(email string) (bool, error) {
+	var emailCount int64
+	err := r.db.Model(&model.User{}).Where("email = ?", email).Count(&emailCount).Error
+	if err != nil {
+		return false, err
+	}
+	return emailCount > 0, nil
 }

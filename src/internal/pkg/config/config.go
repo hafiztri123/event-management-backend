@@ -17,8 +17,8 @@ type DatabaseConfig struct {
 }
 
 type AuthConfig struct {
-	JWTSecret 		string
-	TokenExpiryHrs 	int
+    JWTSecret       string `mapstructure:"jwt_secret"`
+    TokenExpiryHrs  int    `mapstructure:"token_expiry_hrs"`
 }
 
 type Config struct {
