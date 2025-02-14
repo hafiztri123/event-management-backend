@@ -11,11 +11,17 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/hafiztri123/src/internal/pkg/config"
+	"github.com/hafiztri123/src/internal/pkg/database"
+	"github.com/hafiztri123/src/internal/repository/postgres"
+	"gorm.io/gorm"
 )
 
 
 func main(){
-
+	cfg := loadConfig()
+	db := loadDatabase(&cfg.Database)
+	startMigration(db)
 	router := chi.NewRouter()
 	applyMiddleware(router)
 	healthRouteInit(router)
@@ -81,6 +87,27 @@ func startServer(router *chi.Mux) {
 	}
 
 	<-serverCtx.Done()
+}
 
+func loadConfig() *config.Config {
+	log.Println("[OK] load config")
+	cfg, err := config.LoadConfig(".")
+	if err != nil {
+		log.Fatal("[FAIL] failed to load config")
+	}
+	return cfg
+}
 
+func loadDatabase(cfg *config.DatabaseConfig) *gorm.DB {
+	log.Println("[OK] load database")
+	db, err := database.NewPostgresDB(cfg)
+	if err != nil {
+		log.Fatal("[FAIL] fail to load database")
+	}
+	return db
+}
+
+func startMigration(db *gorm.DB) {
+	log.Println("[OK] start migration")
+	postgres.RunMigrations(db)
 }
