@@ -4,14 +4,11 @@ import "time"
 
 
 
-type SuccessResponse struct {
-	Timestamp time.Time `json:"timestamp"`
-	Data interface{} `json:"data"`
-}
 
-type ErrorResponse struct {
+type Response struct {
 	Timestamp time.Time `json:"timestamp"`
-	Message string `json:"string"`
+	Message string `json:"message,omitempty"`
+	Data interface{} `json:"data,omitempty"`
 }
 
 
