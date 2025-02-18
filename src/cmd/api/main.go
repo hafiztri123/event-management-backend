@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -33,13 +32,11 @@ func main(){
 	authMiddleware := customMiddleware.NewAuthMiddleware(cfg.Auth.JWTSecret)
 	applyMiddleware(router)
 	authHandler := authHandlerInit(db, cfg)
+	eventHandler := eventHandlerInit(db)
 	authRouteInit(authHandler, router)
 	healthRouteInit(router)
-	proctedTestRouteInit(router, *authMiddleware)
+	eventRouteInit(eventHandler, router, *authMiddleware)
 	startServer(router)
-
-
-
 }
 
 func applyMiddleware(router *chi.Mux) {
@@ -127,7 +124,6 @@ func authHandlerInit(db *gorm.DB, cfg *config.Config) handler.AuthHandler {
 	log.Println("[OK] auth handler initialization")
 	userRepo :=  repositoryImplementation.NewUserRepository(db)
 	authService := serviceImplementation.NewAuthService(userRepo, &cfg.Auth)
-	fmt.Println(cfg.Auth)
 	authHandler := handlerImplementation.NewAuthHandler(authService)
 	return authHandler
 }
@@ -138,13 +134,27 @@ func authRouteInit(authHandler handler.AuthHandler, router *chi.Mux) {
 	router.Post("/api/v1/auth/login", authHandler.Login)
 }
 
-func proctedTestRouteInit(router *chi.Mux, authMiddleware customMiddleware.AuthMiddleware){
+
+func eventHandlerInit(db *gorm.DB) handler.EventHandler {
+	log.Println("[OK] event handler initialization")
+	eventRepo := repositoryImplementation.NewEventRepository(db)
+	eventService := serviceImplementation.NewEventService(eventRepo)
+	eventHandler := handlerImplementation.NewEventHandler(eventService)
+	return eventHandler
+}
+
+func eventRouteInit(eventHandler handler.EventHandler, router *chi.Mux, authMiddleware customMiddleware.AuthMiddleware) {
+	log.Println("[OK] event route initialization")
+	router.Group(func(r chi.Router) {
+		r.Get("/api/v1/events", eventHandler.ListEvents)
+		r.Get("/api/v1/events/{id}", eventHandler.GetEvent)
+	})
+
+	//Protected
 	router.Group(func(r chi.Router) {
 		r.Use(authMiddleware.Authenticate)
-		r.Get("/test",func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("This is protected"))
-
-		})
+		r.Post("/api/v1/events", eventHandler.CreateEvent)
+        r.Put("/api/v1/events/{id}", eventHandler.UpdateEvent)
+        r.Delete("/api/v1/events/{id}", eventHandler.DeleteEvent)
 	})
 }

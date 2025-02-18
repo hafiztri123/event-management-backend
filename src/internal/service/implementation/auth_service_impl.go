@@ -88,15 +88,19 @@ func (s *AuthService) Login(input *service.LoginInput) (*service.LoginResponse, 
 
 
 func (s *AuthService) generateToken(user *model.User) (string, error) {
-	claims := jwt.MapClaims{
-		"user_id": user.ID,
-		"nbf": time.Now().Unix(),
-		"iat": time.Now().Unix(),
-		"exp": time.Now().Add(time.Hour * time.Duration(s.config.TokenExpiryHrs)).Unix(),
-	}
+    claims := jwt.MapClaims{
+        "user_id": user.ID,
+        "email":   user.Email,
+        "nbf":     time.Now().Unix(),
+        "iat":     time.Now().Unix(),
+        "exp":     time.Now().Add(time.Hour * time.Duration(s.config.TokenExpiryHrs)).Unix(),
+    }
 
-	
+    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+    signedToken, err := token.SignedString([]byte(s.config.JWTSecret))
+    if err != nil {
+        return "", err
+    }
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(s.config.JWTSecret))
+    return signedToken, nil
 }
