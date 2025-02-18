@@ -27,7 +27,19 @@ func NewEventHandler(eventService service.EventService) handler.EventHandler {
 	}
 }
 
-
+// CreateEvent godoc
+// @Summary      Create new event
+// @Description  Create a new event with the given details
+// @Tags         events
+// @Accept       json
+// @Produce      json
+// @Param        input body service.CreateEventInput true "Event Details"
+// @Success      201  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Failure      401  {object}  response.Response
+// @Failure      500  {object}  response.Response
+// @Security     Bearer
+// @Router       /events [post]
 func (h *eventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	var input service.CreateEventInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -62,6 +74,22 @@ func (h *eventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 
 }
 
+// UpdateEvent godoc
+// @Summary      Update event
+// @Description  Update an existing event with new details
+// @Tags         events
+// @Accept       json
+// @Produce      json
+// @Param        id   path      string  true  "Event ID"
+// @Param        input body service.UpdateEventInput true "Event Details"
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Failure      401  {object}  response.Response
+// @Failure      403  {object}  response.Response
+// @Failure      404  {object}  response.Response
+// @Failure      500  {object}  response.Response
+// @Security     Bearer
+// @Router       /events/{id} [put]
 func (h *eventHandler) UpdateEvent (w http.ResponseWriter, r *http.Request) {
 	eventID := chi.URLParam(r, "id")
 	var input service.UpdateEventInput
@@ -109,6 +137,20 @@ func (h *eventHandler) UpdateEvent (w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+
+// DeleteEvent godoc
+// @Summary      Delete event
+// @Description  Delete an existing event
+// @Tags         events
+// @Produce      json
+// @Param        id   path      string  true  "Event ID"
+// @Success      204  {object}  response.Response
+// @Failure      401  {object}  response.Response
+// @Failure      403  {object}  response.Response
+// @Failure      404  {object}  response.Response
+// @Failure      500  {object}  response.Response
+// @Security     Bearer
+// @Router       /events/{id} [delete]
 func (h *eventHandler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
 	eventID := chi.URLParam(r, "id")
 
@@ -141,6 +183,16 @@ func (h *eventHandler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetEvent godoc
+// @Summary      Get event details
+// @Description  Get details of a specific event
+// @Tags         events
+// @Produce      json
+// @Param        id   path      string  true  "Event ID"
+// @Success      200  {object}  response.Response{data=model.Event}
+// @Failure      404  {object}  response.Response
+// @Failure      500  {object}  response.Response
+// @Router       /events/{id} [get]
 func (h *eventHandler) GetEvent(w http.ResponseWriter, r *http.Request) {
 	eventID := chi.URLParam(r, "id")
 
@@ -162,6 +214,16 @@ func (h *eventHandler) GetEvent(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ListEvents godoc
+// @Summary      List events
+// @Description  Get a paginated list of all events
+// @Tags         events
+// @Produce      json
+// @Param        page      query     int  false  "Page number"  minimum(1)
+// @Param        page_size query     int  false  "Page size"    minimum(1)  maximum(100)
+// @Success      200  {object}  response.Response{data=[]model.Event}
+// @Failure      500  {object}  response.Response
+// @Router       /events [get]
 func (h *eventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	page, err := strconv.Atoi(r.URL.Query().Get("page"))
 	if err != nil || page < 1 {

@@ -1,11 +1,15 @@
 package repository
 
-import "github.com/hafiztri123/src/internal/model"
+import (
+	"context"
+
+	"github.com/hafiztri123/src/internal/model"
+)
 
 type EventRepository interface {
-	GetByID(id string) (*model.Event, error)
-    List(limit, offset int) ([]*model.Event, error)
-    Create(event *model.Event) error
-    Update(event *model.Event) error
-    Delete(id string) error
+    GetByID(ctx context.Context, id string) (*model.Event, error)
+    List(ctx context.Context, limit, offset int) ([]*model.Event, error)
+    Create(ctx context.Context, event *model.Event) error
+    Update(ctx context.Context, event *model.Event) error
+    Delete(ctx context.Context, id string) error
 }

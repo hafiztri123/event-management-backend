@@ -24,6 +24,19 @@ func NewAuthHandler(authService service.AuthService) handler.AuthHandler {
 	}
 }
 
+// Register godoc
+// @Summary      Register new user
+// @Description  Register a new user with email, password and full name
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        input body service.RegisterInput true "Registration Details"
+// @Success      201  {object}  response.Response
+// @Failure      400  {object}  response.Response{message=string} "Invalid input"
+// @Failure      409  {object}  response.Response{message=string} "User already exists"
+// @Failure      500  {object}  response.Response{message=string} "Server error"
+// @Router       /auth/register [post]
+
 func (h *authHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var input service.RegisterInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -61,6 +74,20 @@ func (h *authHandler) Register(w http.ResponseWriter, r *http.Request) {
 		Timestamp: time.Now(),
 	})
 }
+
+
+// Login godoc
+// @Summary      Login user
+// @Description  Authenticate user and return JWT token
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        input body service.LoginInput true "Login Credentials"
+// @Success      200  {object}  response.Response{data=service.LoginResponse}
+// @Failure      400  {object}  response.Response{message=string} "Invalid input"
+// @Failure      401  {object}  response.Response{message=string} "Invalid credentials"
+// @Failure      500  {object}  response.Response{message=string} "Server error"
+// @Router       /auth/login [post]
 
 func (h *authHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var input service.LoginInput

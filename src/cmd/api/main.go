@@ -11,31 +11,54 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	_ "github.com/hafiztri123/docs"
 	"github.com/hafiztri123/src/internal/delivery/handler"
 	handlerImplementation "github.com/hafiztri123/src/internal/delivery/handler/implementation"
+	"github.com/hafiztri123/src/internal/pkg/cache"
 	"github.com/hafiztri123/src/internal/pkg/config"
 	"github.com/hafiztri123/src/internal/pkg/database"
 	customMiddleware "github.com/hafiztri123/src/internal/pkg/middleware"
 	"github.com/hafiztri123/src/internal/repository/implementation"
 	"github.com/hafiztri123/src/internal/repository/postgres"
 	serviceImplementation "github.com/hafiztri123/src/internal/service/implementation"
+	httpSwagger "github.com/swaggo/http-swagger"
 	"gorm.io/gorm"
 )
 
+// @title           Event Management API
+// @version         1.0
+// @description     API Server for Event Management Application
+// @termsOfService  http://swagger.io/terms/
+
+// @contact.name   Hafizh tri Wahyu Muhammad
+// @contact.email  hafiz.triwahyu@gmail.com
+
+// @license.name  Apache 2.0
+// @license.url   http://www.apache.org/licenses/LICENSE-2.0.html
+
+// @host      localhost:8080
+// @BasePath  /api/v1
+
+// @securityDefinitions.apikey Bearer
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and JWT token.
 
 
 func main(){
 	cfg := loadConfig()
 	db := loadDatabase(&cfg.Database)
 	startMigration(db)
+	redis := redisInit(&cfg.Redis)
 	router := chi.NewRouter()
 	authMiddleware := customMiddleware.NewAuthMiddleware(cfg.Auth.JWTSecret)
 	applyMiddleware(router)
 	authHandler := authHandlerInit(db, cfg)
-	eventHandler := eventHandlerInit(db)
+	eventHandler := eventHandlerInit(db, redis)
 	authRouteInit(authHandler, router)
 	healthRouteInit(router)
 	eventRouteInit(eventHandler, router, *authMiddleware)
+	swaggerRouteInit(router)
 	startServer(router)
 }
 
@@ -135,9 +158,9 @@ func authRouteInit(authHandler handler.AuthHandler, router *chi.Mux) {
 }
 
 
-func eventHandlerInit(db *gorm.DB) handler.EventHandler {
+func eventHandlerInit(db *gorm.DB, cfg *cache.RedisCache) handler.EventHandler {
 	log.Println("[OK] event handler initialization")
-	eventRepo := repositoryImplementation.NewEventRepository(db)
+	eventRepo := repositoryImplementation.NewEventRepository(db, cfg)
 	eventService := serviceImplementation.NewEventService(eventRepo)
 	eventHandler := handlerImplementation.NewEventHandler(eventService)
 	return eventHandler
@@ -157,4 +180,17 @@ func eventRouteInit(eventHandler handler.EventHandler, router *chi.Mux, authMidd
         r.Put("/api/v1/events/{id}", eventHandler.UpdateEvent)
         r.Delete("/api/v1/events/{id}", eventHandler.DeleteEvent)
 	})
+}
+
+func swaggerRouteInit(router *chi.Mux) {
+	log.Println("[OK] swagger route initialization")
+	router.Get("/swagger/*", httpSwagger.Handler(
+		httpSwagger.URL("http://localhost:8080/swagger/doc.json"),
+	))
+}
+
+func redisInit(cfg *config.RedisConfig) *cache.RedisCache {
+	log.Println("[OK] initializing redis")
+	return cache.NewRedisCache(cfg)
+
 }

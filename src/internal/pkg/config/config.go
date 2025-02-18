@@ -23,10 +23,18 @@ type AuthConfig struct {
     TokenExpiryHrs int    `mapstructure:"token_expiry_hrs"`
 }
 
+type RedisConfig struct {
+    Host            string  `mapstructure:"redis_host"`
+    Port            int     `mapstructure:"redis_port"`
+    Password        string  `mapstructure:"redis_password"`
+    DurationMinute  int     `mapstructure:"redis_duration_minute"`
+}
+
 type Config struct {
     Server   ServerConfig   `mapstructure:"server"`
     Database DatabaseConfig `mapstructure:"database"`
     Auth     AuthConfig     `mapstructure:"auth"`
+    Redis    RedisConfig    `mapstructure:"redis"`
 }
 
 func LoadConfig(path string) (*Config, error) {

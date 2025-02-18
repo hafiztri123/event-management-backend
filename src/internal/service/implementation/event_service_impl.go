@@ -1,6 +1,7 @@
 package serviceImplementation
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -30,7 +31,7 @@ func (s *eventService) CreateEvent(input *service.CreateEventInput, creatorID st
 		UpdatedAt: time.Now(),
 	}
 
-	if err := s.eventRepository.Create(event); err != nil {
+	if err := s.eventRepository.Create(context.Background(),event); err != nil {
 		return err
 	}
 
@@ -38,7 +39,7 @@ func (s *eventService) CreateEvent(input *service.CreateEventInput, creatorID st
 }
 
 func (s *eventService) UpdateEvent(id string, input *service.UpdateEventInput, userID string)  error {
-	event, err := s.eventRepository.GetByID(id)
+	event, err := s.eventRepository.GetByID(context.Background(), id)
 	if err != nil {
 		return err
 	}
@@ -57,7 +58,7 @@ func (s *eventService) UpdateEvent(id string, input *service.UpdateEventInput, u
 	event.EndDate = input.EndDate
 	event.UpdatedAt = time.Now()
 
-	if err := s.eventRepository.Update(event); err != nil {
+	if err := s.eventRepository.Update(context.Background(), event); err != nil {
 		return err
 	}
 
@@ -65,7 +66,7 @@ func (s *eventService) UpdateEvent(id string, input *service.UpdateEventInput, u
 }
 
 func (s *eventService) DeleteEvent(id string, userID string) error {
-	event, err := s.eventRepository.GetByID(id)
+	event, err := s.eventRepository.GetByID(context.Background(), id)
 
 	if err != nil {
 		return err
@@ -79,11 +80,11 @@ func (s *eventService) DeleteEvent(id string, userID string) error {
 		return errors.New("[FAIL] unauthorized to delete this event")
 	}
 
-	return s.eventRepository.Delete(id)
+	return s.eventRepository.Delete(context.Background(), id)
 }
 
 func (s *eventService) GetEvent(id string) (*model.Event, error) {
-	event, err := s.eventRepository.GetByID(id)
+	event, err := s.eventRepository.GetByID(context.Background(), id)
 	if err != nil {
 		return nil, err
 	}
@@ -97,5 +98,5 @@ func (s *eventService) GetEvent(id string) (*model.Event, error) {
 
 func (s *eventService) ListEvents(input *service.ListEventsInput) ([]*model.Event, error) {
 	offset := (input.Page - 1) * input.PageSize
-	return s.eventRepository.List(input.PageSize, offset)
+	return s.eventRepository.List(context.Background(), input.PageSize, offset)
 }
