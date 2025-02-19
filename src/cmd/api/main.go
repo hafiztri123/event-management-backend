@@ -18,6 +18,7 @@ import (
 	"github.com/hafiztri123/src/internal/pkg/cache"
 	"github.com/hafiztri123/src/internal/pkg/config"
 	"github.com/hafiztri123/src/internal/pkg/database"
+	"github.com/hafiztri123/src/internal/pkg/health"
 	customMiddleware "github.com/hafiztri123/src/internal/pkg/middleware"
 	"github.com/hafiztri123/src/internal/repository/implementation"
 	"github.com/hafiztri123/src/internal/repository/postgres"
@@ -60,7 +61,7 @@ func main(){
 	authHandler := authHandlerInit(db, cfg)
 	eventHandler := eventHandlerInit(db, redisCache)
 	authRouteInit(authHandler, router)
-	healthRouteInit(router)
+	healthRouteInit(router, db, redisClient)
 	eventRouteInit(eventHandler, router, *authMiddleware, *rateLimitMiddleware)
 	swaggerRouteInit(router)
 	startServer(router)
@@ -77,12 +78,25 @@ func applyMiddleware(router *chi.Mux) {
 	
 }
 
-func healthRouteInit(router *chi.Mux) {
+func healthRouteInit(router *chi.Mux, db *gorm.DB, redis *redis.Client ) {
 	log.Println("[OK] Health route initialization")
-	router.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+
+	healthChecker := health.NewHealthChecker("1.0.0")
+	healthChecker.AddChecker(health.NewDatabaseChecker(db))
+	healthChecker.AddChecker(health.NewRedisChecker(redis))
+	healthChecker.AddChecker(health.NewMemoryChecker())
+	healthChecker.AddChecker(health.NewDiskChecker("."))
+
+	router.Get("/api/v1/health", healthChecker.Handler())
+
+	router.Get("/api/v1/health/liveness", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
+	
+	router.Get("/api/v1/health/readiness", healthChecker.Handler())
+
+
 }
 
 func startServer(router *chi.Mux) {
