@@ -8,4 +8,5 @@ type EventHandler interface{
 	DeleteEvent(w http.ResponseWriter, r *http.Request)
 	GetEvent(w http.ResponseWriter, r *http.Request)
 	ListEvents(w http.ResponseWriter, r *http.Request)
+	SearchEvents(w http.ResponseWriter, r *http.Request)
 }

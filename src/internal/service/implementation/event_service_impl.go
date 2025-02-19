@@ -98,5 +98,34 @@ func (s *eventService) GetEvent(id string) (*model.Event, error) {
 
 func (s *eventService) ListEvents(input *service.ListEventsInput) ([]*model.Event, error) {
 	offset := (input.Page - 1) * input.PageSize
-	return s.eventRepository.List(context.Background(), input.PageSize, offset)
+	return s.eventRepository.List(context.Background(), input.PageSize, offset, input.SortBy, input.SortDir)
+}
+
+
+func (s *eventService) SearchEvents(input *service.SearchEventsInput) (*service.SearchEventsOutput, error){
+	if input.Page < 1 {
+		input.Page = 1
+	}
+
+	if input.PageSize < 1 || input.PageSize > 100 {
+		input.PageSize = 10
+	}
+
+	events, totalCount, err := s.eventRepository.Search(context.Background(), input)
+	if err != nil {
+		return nil, err
+	}
+
+	totalPages := int(totalCount) / input.PageSize
+	if int(totalCount)%input.PageSize > 0 {
+		totalPages++
+	}
+
+	return &service.SearchEventsOutput{
+		Events: events,
+		TotalCount: totalCount,
+		Page: input.Page,
+		PageSize: input.PageSize,
+		TotalPages: totalPages,
+	}, nil
 }

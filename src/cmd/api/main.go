@@ -175,6 +175,7 @@ func eventRouteInit(eventHandler handler.EventHandler, router *chi.Mux, authMidd
 	log.Println("[OK] event route initialization")
 	router.Group(func(r chi.Router) {
 		r.Get("/api/v1/events", eventHandler.ListEvents)
+		r.Get("/api/v1/events/search", eventHandler.SearchEvents)
 		r.Get("/api/v1/events/{id}", eventHandler.GetEvent)
 	})
 

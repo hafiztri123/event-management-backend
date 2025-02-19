@@ -253,3 +253,82 @@ func (h *eventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 		Data: events,
 	})
 }
+
+// SearchEvents godoc
+// @Summary      Search events
+// @Description  Search and filter events with various criteria
+// @Tags         events
+// @Accept       json
+// @Produce      json
+// @Param        query      query     string  false  "Search term in title and description"
+// @Param        start_date query     string  false  "Filter events starting after this date (RFC3339)"
+// @Param        end_date   query     string  false  "Filter events ending before this date (RFC3339)"
+// @Param        creator    query     string  false  "Filter by creator ID"
+// @Param        page       query     int     false  "Page number"  minimum(1)
+// @Param        page_size  query     int     false  "Page size"    minimum(1)  maximum(100)
+// @Param        sort_by    query     string  false  "Sort field (title, start_date, end_date, created_at)"
+// @Param        sort_dir   query     string  false  "Sort direction (asc, desc)"
+// @Success      200  {object}  response.Response{data=service.SearchEventsOutput}
+// @Failure      400  {object}  response.Response
+// @Failure      500  {object}  response.Response
+// @Router       /events/search [get]
+
+func (h *eventHandler) SearchEvents(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("query")
+	creator := r.URL.Query().Get("creator")
+
+	var startDate, endDate *time.Time
+
+	if startDateStr := r.URL.Query().Get("start_date"); startDateStr != "" {
+		parsedDate, err := time.Parse(time.RFC3339, startDateStr)
+		if err == nil {
+			startDate = &parsedDate
+		}
+	}
+
+	if endDateStr := r.URL.Query().Get("end_date"); endDateStr != "" {
+		parsedDate, err := time.Parse(time.RFC3339, endDateStr)
+		if err == nil {
+			endDate = &parsedDate
+		}
+	}
+
+	page, err := strconv.Atoi(r.URL.Query().Get("page"))
+	if err != nil || page < 1 {
+		page = 1
+	}
+
+	pageSize, err := strconv.Atoi(r.URL.Query().Get("page_size"))
+	if err != nil || pageSize < 1 || pageSize > 100 {
+		pageSize = 10
+	}
+
+	sortBy := r.URL.Query().Get("sort_by")
+	sortDir := r.URL.Query().Get("sort_dir")
+
+	input := &service.SearchEventsInput{
+		Query: 		query,
+		StartDate: 	startDate,
+		EndDate: 	endDate,
+		Creator: 	creator,
+		Page: 		page,
+		PageSize: 	pageSize,
+		SortBy: 	sortBy,
+		SortDir: 	sortDir, 
+	}
+
+	result, err := h.eventService.SearchEvents(input)
+	if err != nil {
+		respondWithJSON(w, http.StatusInternalServerError, response.Response{
+			Timestamp: time.Now(),
+			Message: fmt.Sprintf("[FAIL] %s. Internal server error", err.Error()),
+		})
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, response.Response{
+		Timestamp: time.Now(),
+		Data: result,
+	})
+
+}
