@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"github.com/hafiztri123/src/internal/repository/implementation"
 	"github.com/hafiztri123/src/internal/repository/postgres"
 	serviceImplementation "github.com/hafiztri123/src/internal/service/implementation"
+	"github.com/redis/go-redis/v9"
 	httpSwagger "github.com/swaggo/http-swagger"
 	"gorm.io/gorm"
 )
@@ -49,15 +51,17 @@ func main(){
 	cfg := loadConfig()
 	db := loadDatabase(&cfg.Database)
 	startMigration(db)
-	redis := redisInit(&cfg.Redis)
+	redisClient := redisClientInit(cfg.Redis)
+	redisCache := redisCacheInit(redisClient, cfg.Redis)
+	rateLimitMiddleware := redisRateLimitMiddleware(redisClient, cfg.RateLimit)
 	router := chi.NewRouter()
 	authMiddleware := customMiddleware.NewAuthMiddleware(cfg.Auth.JWTSecret)
 	applyMiddleware(router)
 	authHandler := authHandlerInit(db, cfg)
-	eventHandler := eventHandlerInit(db, redis)
+	eventHandler := eventHandlerInit(db, redisCache)
 	authRouteInit(authHandler, router)
 	healthRouteInit(router)
-	eventRouteInit(eventHandler, router, *authMiddleware)
+	eventRouteInit(eventHandler, router, *authMiddleware, *rateLimitMiddleware)
 	swaggerRouteInit(router)
 	startServer(router)
 }
@@ -69,6 +73,7 @@ func applyMiddleware(router *chi.Mux) {
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
 	router.Use(middleware.Timeout(60 * time.Second))
+
 	
 }
 
@@ -166,7 +171,7 @@ func eventHandlerInit(db *gorm.DB, cfg *cache.RedisCache) handler.EventHandler {
 	return eventHandler
 }
 
-func eventRouteInit(eventHandler handler.EventHandler, router *chi.Mux, authMiddleware customMiddleware.AuthMiddleware) {
+func eventRouteInit(eventHandler handler.EventHandler, router *chi.Mux, authMiddleware customMiddleware.AuthMiddleware, rateLimitMiddleware customMiddleware.RateLimiter) {
 	log.Println("[OK] event route initialization")
 	router.Group(func(r chi.Router) {
 		r.Get("/api/v1/events", eventHandler.ListEvents)
@@ -176,6 +181,7 @@ func eventRouteInit(eventHandler handler.EventHandler, router *chi.Mux, authMidd
 	//Protected
 	router.Group(func(r chi.Router) {
 		r.Use(authMiddleware.Authenticate)
+		r.Use(rateLimitMiddleware.RateLimit)
 		r.Post("/api/v1/events", eventHandler.CreateEvent)
         r.Put("/api/v1/events/{id}", eventHandler.UpdateEvent)
         r.Delete("/api/v1/events/{id}", eventHandler.DeleteEvent)
@@ -189,8 +195,28 @@ func swaggerRouteInit(router *chi.Mux) {
 	))
 }
 
-func redisInit(cfg *config.RedisConfig) *cache.RedisCache {
-	log.Println("[OK] initializing redis")
-	return cache.NewRedisCache(cfg)
-
+func redisClientInit(cfg config.RedisConfig) *redis.Client {
+	log.Println("[OK] Initializing redis client")
+	return redis.NewClient(&redis.Options{
+		Addr: fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+		Password: cfg.Password,
+		DB: 0,
+	})
 }
+
+func redisCacheInit(client *redis.Client, cfg config.RedisConfig) *cache.RedisCache {
+	log.Println("[OK] Initializing redis cache")
+	return cache.NewRedisCache(client, cfg)
+}
+
+func redisRateLimitMiddleware(client *redis.Client, cfg config.RateLimitConfig) *customMiddleware.RateLimiter {
+	log.Println("[OK] Initializing redis rate limiter middleware")
+	return customMiddleware.NewRateLimiter(
+		client,
+		cfg.RequestLimit,
+		time.Duration(cfg.WindowSeconds),
+	)
+}
+
+
+

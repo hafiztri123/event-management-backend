@@ -30,11 +30,19 @@ type RedisConfig struct {
     DurationMinute  int     `mapstructure:"redis_duration_minute"`
 }
 
+type RateLimitConfig struct {
+    Enabled         bool    `mapstructure:"enabled"`
+    RequestLimit    int     `mapstructure:"request_limit"`
+    WindowSeconds   int     `mapstructure:"window_seconds"`
+}
+
 type Config struct {
-    Server   ServerConfig   `mapstructure:"server"`
-    Database DatabaseConfig `mapstructure:"database"`
-    Auth     AuthConfig     `mapstructure:"auth"`
-    Redis    RedisConfig    `mapstructure:"redis"`
+    Server      ServerConfig    `mapstructure:"server"`
+    Database    DatabaseConfig  `mapstructure:"database"`
+    Auth        AuthConfig      `mapstructure:"auth"`
+    Redis       RedisConfig     `mapstructure:"redis"`
+    RateLimit   RateLimitConfig `mapstructure:"rate_limit"`
+
 }
 
 func LoadConfig(path string) (*Config, error) {

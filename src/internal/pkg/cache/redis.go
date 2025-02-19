@@ -16,12 +16,7 @@ type RedisCache struct {
 	defaultExpiration time.Duration
 }
 
-func NewRedisCache(cfg *config.RedisConfig) *RedisCache {
-	client := redis.NewClient(&redis.Options{
-		Addr: fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
-		Password: cfg.Password,
-		DB: 0,
-	})
+func NewRedisCache(client *redis.Client, cfg config.RedisConfig) *RedisCache {
 
 	ctx := context.Background()
 	_, err := client.Ping(ctx).Result()
