@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -188,34 +190,40 @@ func (c *RedisChecker) Name() string {
 }
 
 func (c *RedisChecker) Check(ctx context.Context) Component {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
+    ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+    defer cancel()
 
-	pong, err := c.client.Ping(ctx).Result()
-	if err != nil || pong != "PONG" {
-		return Component{
-			Name: c.Name(),
-			Status: StatusDown,
-			Message: fmt.Sprintf("Redis ping failed: %v", err),
-		}
-	}
+    // Ping Redis to check connectivity
+    pong, err := c.client.Ping(ctx).Result()
+    if err != nil || pong != "PONG" {
+        return Component{
+            Name:    c.Name(),
+            Status:  StatusDown,
+            Message: fmt.Sprintf("Redis ping failed: %v", err),
+        }
+    }
 
-	info, err := c.client.Info(ctx, "memory").Result()
-	if err != nil {
-		return Component{
-			Name: c.Name(),
-			Status: StatusUp,
-		}
-	}
+    // Fetch memory info
+    info, err := c.client.Info(ctx, "memory").Result()
+    if err != nil {
+        return Component{
+            Name:   c.Name(),
+            Status: StatusUp,
+        }
+    }
 
-	return Component{
-		Name: c.Name(),
-		Status: StatusUp,
-		Details: map[string]interface{}{
-			"info":info,
-		},
-	}
-} 
+    // Parse and format the memory info
+    parsed := parseRedisInfo(info)
+    formatted := formatMemoryInfo(parsed)
+
+    return Component{
+        Name:   c.Name(),
+        Status: StatusUp,
+        Details: map[string]interface{}{
+            "info": formatted,
+        },
+    }
+}
 
 type DiskChecker struct {
 	path string
@@ -272,4 +280,63 @@ func (c *MemoryChecker) Check(ctx context.Context) Component {
 			"num_gc":     m.NumGC,
 		},
 	}
+}
+
+func parseRedisInfo(info string) map[string]string {
+    parsed := make(map[string]string)
+    lines := strings.Split(info, "\r\n") // Split by lines
+    for _, line := range lines {
+        if strings.Contains(line, ":") { // Only process lines with key-value pairs
+            parts := strings.SplitN(line, ":", 2) // Split into key and value
+            if len(parts) == 2 {
+                key := strings.TrimSpace(parts[0])
+                value := strings.TrimSpace(parts[1])
+                parsed[key] = value
+            }
+        }
+    }
+    return parsed
+}
+
+func formatMemoryInfo(parsed map[string]string) map[string]interface{} {
+    formatted := make(map[string]interface{})
+
+    // Helper function to convert bytes to human-readable format
+    formatBytes := func(bytesStr string) string {
+        bytes, err := strconv.ParseUint(bytesStr, 10, 64)
+        if err != nil {
+            return bytesStr // Return original value if parsing fails
+        }
+        const (
+            KB = 1 << 10
+            MB = 1 << 20
+            GB = 1 << 30
+        )
+        switch {
+        case bytes >= GB:
+            return fmt.Sprintf("%.2fGB", float64(bytes)/GB)
+        case bytes >= MB:
+            return fmt.Sprintf("%.2fMB", float64(bytes)/MB)
+        case bytes >= KB:
+            return fmt.Sprintf("%.2fKB", float64(bytes)/KB)
+        default:
+            return fmt.Sprintf("%dB", bytes)
+        }
+    }
+
+    // Memory Usage
+    formatted["Used Memory"] = formatBytes(parsed["used_memory"])
+    formatted["Used Memory RSS"] = formatBytes(parsed["used_memory_rss"])
+    formatted["Memory Fragmentation Ratio"] = parsed["mem_fragmentation_ratio"]
+    formatted["Max Memory"] = formatBytes(parsed["maxmemory"])
+    formatted["Max Memory Policy"] = parsed["maxmemory_policy"]
+
+    // Overhead
+    formatted["Overhead Memory"] = formatBytes(parsed["used_memory_overhead"])
+    formatted["Dataset Memory"] = formatBytes(parsed["used_memory_dataset"])
+
+    // System Memory
+    formatted["Total System Memory"] = formatBytes(parsed["total_system_memory"])
+
+    return formatted
 }
