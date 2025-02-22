@@ -1,61 +1,130 @@
 package service
 
 import (
-	"time"
+    "context"
+    "errors"
+    "time"
 
-	"github.com/hafiztri123/src/internal/model"
+    "github.com/hafiztri123/src/internal/model"
+    "github.com/hafiztri123/src/internal/repository"
 )
 
-
+// EventService defines the interface for event-related service operations.
 type EventService interface {
-	CreateEvent(input *CreateEventInput, creatorID string) error 
-	UpdateEvent(id string, input *UpdateEventInput, userID string) error
-	DeleteEvent(id string, userID string) error
-	GetEvent(id string) (*model.Event, error)
-	ListEvents(input *ListEventsInput) ([]*model.Event, error)
-	SearchEvents(input *SearchEventsInput) (*SearchEventsOutput, error)
+    CreateEvent(input *model.CreateEventInput, creatorID string) error
+    UpdateEvent(id string, input *model.UpdateEventInput, userID string) error
+    DeleteEvent(id string, userID string) error
+    GetEvent(id string) (*model.Event, error)
+    ListEvents(input *model.ListEventsInput) ([]*model.Event, error)
+    SearchEvents(input *model.SearchEventsInput) (*model.SearchEventsOutput, error)
 }
 
-
-
-type CreateEventInput struct {
-	Title 		string 		`json:"title" validate:"required"`
-	Description string 		`json:"description"`
-	StartDate 	time.Time 	`json:"start_date" validate:"required"`
-	EndDate 	time.Time 	`json:"end_date" validate:"required,gtfield=StartDate"`
+// eventService implements the EventService interface.
+type eventService struct {
+    eventRepository repository.EventRepository
 }
 
-type UpdateEventInput struct {
-	Title 		string 		`json:"title" validate:"required"`
-	Description string 		`json:"description"`
-	StartDate 	time.Time 	`json:"start_date" validate:"required"`
-	EndDate 	time.Time 	`json:"end_date" validate:"required,gtfield=StartDate"`
+// NewEventService creates a new instance of EventService.
+func NewEventService(eventRepo repository.EventRepository) EventService {
+    return &eventService{
+        eventRepository: eventRepo,
+    }
 }
 
-type ListEventsInput struct {
-	Page 		int 	`json:"page" validate:"min=1"`
-	PageSize 	int 	`json:"page_size" validate:"min=1,max=100"`
-	SortBy 		string 	`json:"sort_by,omitempty"`
-	SortDir 	string 	`json:"sort_dir,omitempty"`
+// CreateEvent creates a new event using the provided input and creator ID.
+func (s *eventService) CreateEvent(input *model.CreateEventInput, creatorID string) error {
+    event := &model.Event{
+        Title:       input.Title,
+        Description: input.Description,
+        StartDate:   input.StartDate,
+        EndDate:     input.EndDate,
+        CreatorID:   creatorID,
+        CreatedAt:   time.Now(),
+        UpdatedAt:   time.Now(),
+    }
+    if err := s.eventRepository.Create(context.Background(), event); err != nil {
+        return err
+    }
+    return nil
 }
 
-type SearchEventsInput struct {
-	Query 		string 		`json:"query,omitempty"`
-	StartDate 	*time.Time 	`json:"start_date,omitempty"`
-	EndDate 	*time.Time 	`json:"end_date,omitempty"`
-	Creator 	string 		`json:"creator,omitempty"`
-	Page 		int 		`json:"page" validate:"min=1"`
-	PageSize 	int 		`json:"page_size" validate:"min=1,max=100"`
-	SortBy 		string 		`json:"sort_by,omitempty"`
-	SortDir 	string 		`json:"sort_dir,omitempty"`
+// UpdateEvent updates an existing event if the user is authorized.
+func (s *eventService) UpdateEvent(id string, input *model.UpdateEventInput, userID string) error {
+    event, err := s.eventRepository.GetByID(context.Background(), id)
+    if err != nil {
+        return err
+    }
+    if event == nil {
+        return errors.New("[FAIL] event not found")
+    }
+    if event.CreatorID != userID {
+        return errors.New("[FAIL] unauthorized to modify this event")
+    }
+    event.Title = input.Title
+    event.Description = input.Description
+    event.StartDate = input.StartDate
+    event.EndDate = input.EndDate
+    event.UpdatedAt = time.Now()
+    if err := s.eventRepository.Update(context.Background(), event); err != nil {
+        return err
+    }
+    return nil
 }
 
-type SearchEventsOutput struct {
-	Events 		[]*model.Event 	`json:"events"`
-	TotalCount 	int64 			`json:"total_count"`
-	Page 		int 			`json:"page"`
-	PageSize 	int 			`json:"page_size"`
-	TotalPages 	int 			`json:"total_pages"`
+// DeleteEvent deletes an event if the user is authorized.
+func (s *eventService) DeleteEvent(id string, userID string) error {
+    event, err := s.eventRepository.GetByID(context.Background(), id)
+    if err != nil {
+        return err
+    }
+    if event == nil {
+        return errors.New("[FAIL] event not found")
+    }
+    if event.CreatorID != userID {
+        return errors.New("[FAIL] unauthorized to delete this event")
+    }
+    return s.eventRepository.Delete(context.Background(), id)
 }
 
-	
+// GetEvent retrieves an event by its ID.
+func (s *eventService) GetEvent(id string) (*model.Event, error) {
+    event, err := s.eventRepository.GetByID(context.Background(), id)
+    if err != nil {
+        return nil, err
+    }
+    if event == nil {
+        return nil, errors.New("[FAIL] event not found")
+    }
+    return event, nil
+}
+
+// ListEvents retrieves a paginated list of events based on the input parameters.
+func (s *eventService) ListEvents(input *model.ListEventsInput) ([]*model.Event, error) {
+    offset := (input.Page - 1) * input.PageSize
+    return s.eventRepository.List(context.Background(), input.PageSize, offset, input.SortBy, input.SortDir)
+}
+
+// SearchEvents searches for events based on the input parameters and returns paginated results.
+func (s *eventService) SearchEvents(input *model.SearchEventsInput) (*model.SearchEventsOutput, error) {
+    if input.Page < 1 {
+        input.Page = 1
+    }
+    if input.PageSize < 1 || input.PageSize > 100 {
+        input.PageSize = 10
+    }
+    events, totalCount, err := s.eventRepository.Search(context.Background(), input)
+    if err != nil {
+        return nil, err
+    }
+    totalPages := int(totalCount) / input.PageSize
+    if int(totalCount)%input.PageSize > 0 {
+        totalPages++
+    }
+    return &model.SearchEventsOutput{
+        Events:     events,
+        TotalCount: totalCount,
+        Page:       input.Page,
+        PageSize:   input.PageSize,
+        TotalPages: totalPages,
+    }, nil
+}

@@ -24,6 +24,9 @@ func migration(db *gorm.DB) {
 	err := db.AutoMigrate(
 		&model.User{},
 		&model.Event{},
+		&model.Category{},
+		&model.Tag{},
+		&model.File{},
 	)
 	if err != nil {
 		log.Fatal("[FAIL] fail to migrate")
