@@ -187,9 +187,9 @@ func (r *categoryRepositoryImpl) List(ctx context.Context) ([]*model.Category, e
 func (r *categoryRepositoryImpl) IsIDExists(id string) (bool, error) {
 	var idCount int64
 	model := r.db.Model(&model.Category{})
-	err := model.Where("id = ?", id).Count(&idCount)
+	err := model.Where("id = ?", id).Count(&idCount).Error
 	if err != nil {
-		return false, nil
+		return false, err
 	}
 	return idCount > 0, nil
 }

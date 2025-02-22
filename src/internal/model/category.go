@@ -16,6 +16,6 @@ type CreateCategoryInput struct {
 }
 
 type UpdateCategoryInput struct {
-    Name        string `json:"name" validate:"required"`
+    Name        string `json:"name"`
     Description string `json:"description"`
 }
