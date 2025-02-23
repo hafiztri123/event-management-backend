@@ -2,7 +2,6 @@ package handler
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/hafiztri123/src/internal/model"
+	errs "github.com/hafiztri123/src/internal/pkg/error"
 	"github.com/hafiztri123/src/internal/pkg/response"
 	"github.com/hafiztri123/src/internal/service"
 )
@@ -55,18 +55,12 @@ func NewEventHandler(eventService service.EventService) EventHandler {
 func (h *eventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
     var input model.CreateEventInput
     if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-        respondWithJSON(w, http.StatusBadRequest, response.Response{
-            Timestamp: time.Now(),
-            Message:   "[FAIL] Attempt to parse request has failed. Bad request.",
-        })
+        HandleErrorResponse(w, err)
         return
     }
 
     if err := h.validator.Struct(input); err != nil {
-        respondWithJSON(w, http.StatusBadRequest, response.Response{
-            Timestamp: time.Now(),
-            Message:   "[FAIL] Request was not valid. Bad request.",
-        })
+        HandleErrorResponse(w, err)
         return
     }
 
@@ -75,10 +69,7 @@ func (h *eventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 
     err := h.eventService.CreateEvent(&input, userID)
     if err != nil {
-        respondWithJSON(w, http.StatusInternalServerError, response.Response{
-            Timestamp: time.Now(),
-            Message:   fmt.Sprintf("[FAIL] %s. Status internal server error", err.Error()),
-        })
+        HandleErrorResponse(w, err)
         return
     }
 
@@ -107,18 +98,12 @@ func (h *eventHandler) UpdateEvent(w http.ResponseWriter, r *http.Request) {
     eventID := chi.URLParam(r, "id")
     var input model.UpdateEventInput
     if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-        respondWithJSON(w, http.StatusBadRequest, response.Response{
-            Timestamp: time.Now(),
-            Message:   "[FAIL] Attempt to parse request has failed. Bad request.",
-        })
+        HandleErrorResponse(w, err)
         return
     }
 
     if err := h.validator.Struct(input); err != nil {
-        respondWithJSON(w, http.StatusBadRequest, response.Response{
-            Timestamp: time.Now(),
-            Message:   "[FAIL] Request was not valid. Bad request.",
-        })
+        HandleErrorResponse(w, errs.NewBadRequestError("Request is not valid"))
         return
     }
 
@@ -127,23 +112,7 @@ func (h *eventHandler) UpdateEvent(w http.ResponseWriter, r *http.Request) {
 
     err := h.eventService.UpdateEvent(eventID, &input, userID)
     if err != nil {
-        switch err.Error() {
-        case "[FAIL] event not found":
-            respondWithJSON(w, http.StatusNotFound, response.Response{
-                Timestamp: time.Now(),
-                Message:   fmt.Sprintf("%s. Not found.", err.Error()),
-            })
-        case "[FAIL] unauthorized to modify this event":
-            respondWithJSON(w, http.StatusForbidden, response.Response{
-                Timestamp: time.Now(),
-                Message:   fmt.Sprintf("%s. Forbidden.", err.Error()),
-            })
-        default:
-            respondWithJSON(w, http.StatusInternalServerError, response.Response{
-                Timestamp: time.Now(),
-                Message:   fmt.Sprintf("[FAIL] %s. Internal server error", err.Error()),
-            })
-        }
+        HandleErrorResponse(w, err)
         return
     }
 
@@ -173,23 +142,7 @@ func (h *eventHandler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
 
     err := h.eventService.DeleteEvent(eventID, userID)
     if err != nil {
-        switch err.Error() {
-        case "[FAIL] event not found":
-            respondWithJSON(w, http.StatusNotFound, response.Response{
-                Timestamp: time.Now(),
-                Message:   fmt.Sprintf("%s. Not found", err.Error()),
-            })
-        case "[FAIL] unauthorized to delete this event":
-            respondWithJSON(w, http.StatusForbidden, response.Response{
-                Timestamp: time.Now(),
-                Message:   fmt.Sprintf("%s. Forbidden", err.Error()),
-            })
-        default:
-            respondWithJSON(w, http.StatusInternalServerError, response.Response{
-                Timestamp: time.Now(),
-                Message:   fmt.Sprintf("%s. Internal server error", err.Error()),
-            })
-        }
+        HandleErrorResponse(w, err)
         return
     }
 
@@ -213,17 +166,7 @@ func (h *eventHandler) GetEvent(w http.ResponseWriter, r *http.Request) {
 
     event, err := h.eventService.GetEvent(eventID)
     if err != nil {
-        if err.Error() == "[FAIL] event not found" {
-            respondWithJSON(w, http.StatusNotFound, response.Response{
-                Timestamp: time.Now(),
-                Message:   fmt.Sprintf("%s. Not found", err.Error()),
-            })
-            return
-        }
-        respondWithJSON(w, http.StatusInternalServerError, response.Response{
-            Timestamp: time.Now(),
-            Message:   fmt.Sprintf("[FAIL] %s. Internal server error", err.Error()),
-        })
+        HandleErrorResponse(w, err)
         return
     }
 
@@ -261,10 +204,7 @@ func (h *eventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 
     events, err := h.eventService.ListEvents(input)
     if err != nil {
-        respondWithJSON(w, http.StatusInternalServerError, response.Response{
-            Timestamp: time.Now(),
-            Message:   fmt.Sprintf("[FAIL] %s. Internal server error", err.Error()),
-        })
+        HandleErrorResponse(w, err)
         return
     }
 
@@ -338,10 +278,7 @@ func (h *eventHandler) SearchEvents(w http.ResponseWriter, r *http.Request) {
 
     result, err := h.eventService.SearchEvents(input)
     if err != nil {
-        respondWithJSON(w, http.StatusInternalServerError, response.Response{
-            Timestamp: time.Now(),
-            Message:   fmt.Sprintf("[FAIL] %s. Internal server error", err.Error()),
-        })
+        HandleErrorResponse(w, err)
         return
     }
 
@@ -351,15 +288,3 @@ func (h *eventHandler) SearchEvents(w http.ResponseWriter, r *http.Request) {
     })
 }
 
-// Helper function to respond with JSON
-func respondWithJSON(w http.ResponseWriter, statusCode int, payload interface{}) {
-    response, err := json.Marshal(payload)
-    if err != nil {
-        http.Error(w, fmt.Sprintf("[FAIL] Failed to marshal response: %v", err), http.StatusInternalServerError)
-        return
-    }
-
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(statusCode)
-    w.Write(response)
-}

@@ -1,18 +1,17 @@
 package repository
 
 import (
-    "context"
-    "errors"
-    "fmt"
-    "log"
-    "time"
+	"context"
+	"fmt"
+	"log"
+	"time"
 
-    "github.com/hafiztri123/src/internal/model"
-    "github.com/hafiztri123/src/internal/pkg/cache"
-    "gorm.io/gorm"
+	"github.com/hafiztri123/src/internal/model"
+	"github.com/hafiztri123/src/internal/pkg/cache"
+	errs "github.com/hafiztri123/src/internal/pkg/error"
+	"gorm.io/gorm"
 )
 
-// EventRepository defines the interface for event-related database operations.
 type EventRepository interface {
     GetByID(ctx context.Context, id string) (*model.Event, error)
     List(ctx context.Context, limit, offset int, sortBy, sortDir string) ([]*model.Event, error)
@@ -22,13 +21,11 @@ type EventRepository interface {
     Search(ctx context.Context, params *model.SearchEventsInput) ([]*model.Event, int64, error)
 }
 
-// eventRepository implements the EventRepository interface.
 type eventRepository struct {
     db    *gorm.DB
     cache *cache.RedisCache
 }
 
-// NewEventRepository creates a new instance of EventRepository.
 func NewEventRepository(db *gorm.DB, cache *cache.RedisCache) EventRepository {
     return &eventRepository{
         db:    db,
@@ -36,7 +33,12 @@ func NewEventRepository(db *gorm.DB, cache *cache.RedisCache) EventRepository {
     }
 }
 
-// GetByID retrieves an event by its ID, using cache if available.
+const (
+    CACHE_SET_FAIL string = "[FAIL] Setting cached failed"
+    CACHE_KEYS_FAIL string = "[FAIL] Getting cached keys failed"
+    CACHE_DELETE_FAIL string = "[FAIL] Delete cached key failed"
+)
+
 func (r *eventRepository) GetByID(ctx context.Context, id string) (*model.Event, error) {
     var event model.Event
     cacheKey := fmt.Sprintf("event:%s", id)
@@ -46,17 +48,14 @@ func (r *eventRepository) GetByID(ctx context.Context, id string) (*model.Event,
         return &event, nil
     }
 
-    result := r.db.Where("id = ?", id).First(&event)
-    if result.Error != nil {
-        if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-            return nil, nil
-        }
-        return nil, result.Error
+    err = r.db.Where("id = ?", id).First(&event).Error
+    if err != nil {
+        return nil, errs.NewNotFoundError("Event not found")
     }
 
     err = r.cache.Set(ctx, cacheKey, event, 30*time.Minute)
     if err != nil {
-        log.Printf("[FAIL] failed to cache event: %v", err)
+        log.Printf("%s: %v", CACHE_SET_FAIL, err)
     }
 
     return &event, nil
@@ -98,14 +97,14 @@ func (r *eventRepository) List(ctx context.Context, limit, offset int, sortBy, s
         Offset(offset).
         Order(fmt.Sprintf("%s %s", sortBy, sortDir))
 
-    result := query.Find(&events)
-    if result.Error != nil {
-        return nil, result.Error
+    err = query.Find(&events).Error
+    if err != nil {
+        return nil, DBError(err)
     }
 
     err = r.cache.Set(ctx, cacheKey, events, 5*time.Minute)
     if err != nil {
-        log.Printf("[FAIL] Failed to cache events list: %s", err)
+        log.Printf("%s: %s", CACHE_SET_FAIL, err)
     }
 
     return events, nil
@@ -115,26 +114,25 @@ func (r *eventRepository) List(ctx context.Context, limit, offset int, sortBy, s
 func (r *eventRepository) Create(ctx context.Context, event *model.Event) error {
     err := r.db.Create(event).Error
     if err != nil {
-        log.Printf("[FAIL] failed to cache new event: %v", err)
+        return DBError(err)
     }
 
     listKeysPattern := "events:list:*"
     keys, err := r.cache.Client.Keys(ctx, listKeysPattern).Result()
     if err != nil {
-        log.Printf("[FAIL] Failed to get list cache keys: %v", err)
+        log.Printf("%s: %v",CACHE_KEYS_FAIL, err)
     }
 
     for _, key := range keys {
         err = r.cache.Delete(ctx, key)
         if err != nil {
-            log.Printf("[FAIL] failed to invalidate list cache: %v", err)
+            log.Printf("%s: %v", CACHE_DELETE_FAIL, err)
         }
     }
 
     return nil
 }
 
-// Update updates an existing event in the database and invalidates relevant cache keys.
 func (r *eventRepository) Update(ctx context.Context, event *model.Event) error {
     err := r.db.Transaction(func(tx *gorm.DB) error {
         err := tx.Save(event).Error
@@ -145,25 +143,25 @@ func (r *eventRepository) Update(ctx context.Context, event *model.Event) error 
     })
 
     if err != nil {
-        return err
+        return DBError(err)
     }
 
     cacheKey := fmt.Sprintf("events:%s", event.ID)
     err = r.cache.Set(ctx, cacheKey, event, 30*time.Minute)
     if err != nil {
-        log.Printf("[FAIL] failed to update event cache: %v", err)
+        log.Printf("%s: %v", CACHE_SET_FAIL, err)
     }
 
     listKeysPattern := "events:list:*"
     keys, err := r.cache.Client.Keys(ctx, listKeysPattern).Result()
     if err != nil {
-        log.Printf("[FAIL] failed to get list cache keys: %v", err)
+        log.Printf("%s: %v",CACHE_KEYS_FAIL, err)
     }
 
     for _, key := range keys {
         err = r.cache.Delete(ctx, key)
         if err != nil {
-            log.Printf("[FAIL] failed to invalidate list cache: %v", err)
+            log.Printf("%s: %v",CACHE_DELETE_FAIL, err)
         }
     }
 
@@ -181,32 +179,31 @@ func (r *eventRepository) Delete(ctx context.Context, id string) error {
     })
 
     if err != nil {
-        return fmt.Errorf("[FAIL] failed to delete event: %s", err)
+        return DBError(err)
     }
 
     cacheKey := fmt.Sprintf("event:%s", id)
     err = r.cache.Delete(ctx, cacheKey)
     if err != nil {
-        log.Printf("[FAIL] failed to delete event cache: %v", err)
+        log.Printf("%s: %v",CACHE_DELETE_FAIL, err)
     }
 
     listKeysPattern := "events:list:*"
     keys, err := r.cache.Client.Keys(ctx, listKeysPattern).Result()
     if err != nil {
-        log.Printf("[FAIL] failed to get list cache keys: %v", err)
+        log.Printf("%s: %v",CACHE_KEYS_FAIL, err)
     }
 
     for _, key := range keys {
         err = r.cache.Delete(ctx, key)
         if err != nil {
-            log.Printf("[FAIL] failed to invalidate list cache: %v", err)
+        log.Printf("%s: %v",CACHE_DELETE_FAIL, err)
         }
     }
 
     return nil
 }
 
-// Search retrieves events based on search parameters.
 func (r *eventRepository) Search(ctx context.Context, params *model.SearchEventsInput) ([]*model.Event, int64, error) {
     var events []*model.Event
     var totalCount int64
@@ -231,7 +228,7 @@ func (r *eventRepository) Search(ctx context.Context, params *model.SearchEvents
     }
 
     if err := query.Count(&totalCount).Error; err != nil {
-        return nil, 0, err
+        return nil, 0, DBError(err)
     }
 
     sortBy := "created_at"
@@ -254,7 +251,7 @@ func (r *eventRepository) Search(ctx context.Context, params *model.SearchEvents
         Find(&events).Error
 
     if err != nil {
-        return nil, 0, err
+        return nil, 0, DBError(err)
     }
 
     return events, totalCount, nil

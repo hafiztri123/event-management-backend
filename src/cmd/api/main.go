@@ -48,48 +48,79 @@ import (
 // @description Type "Bearer" followed by a space and JWT token.
 
 func main(){
-	// Initialize structured logger
 	appLogger, err := initLogger()
 	if err != nil {
 		log.Fatalf("[FAIL] Failed to initialize logger: %v", err)
 	}
 	defer appLogger.Close()
-	
+
 
 	ctx := context.Background()
-	// Add this somewhere in your main() function, after logger initialization
+
 	appLogger.Info(ctx, "Application started successfully", map[string]interface{}{
 	    "test": true,
 	    "timestamp": time.Now().String(),
 	})
 
 	cfg := loadConfig(appLogger, ctx)
+
 	db := loadDatabase(appLogger, ctx, &cfg.Database)
 	startMigration(appLogger, ctx, db)
+
 	redisClient := redisClientInit(appLogger, ctx, cfg.Redis)
 	redisCache := redisCacheInit(appLogger, ctx, redisClient, cfg.Redis)
-	rateLimitMiddleware := redisRateLimitMiddleware(appLogger, ctx, redisClient, cfg.RateLimit)
-	
+
+	repository := newMainRepository(db, redisCache)
+	service := newMainService(repository, cfg)
+	handler := newMainHandler(service)
+	middleware := newMainMiddleware(cfg, redisClient)
+
+
+
 	router := chi.NewRouter()
-	authMiddleware := customMiddleware.NewAuthMiddleware(cfg.Auth.JWTSecret)
-	
-	applyMiddleware(appLogger, router)
-	
-	authHandler := authHandlerInit(appLogger, ctx, db, cfg)
-	eventHandler := eventHandlerInit(appLogger, ctx, db, redisCache)
-	userHandler := userHandlerInit(appLogger, ctx, db)
-    categoryHandler := categoryHandlerInit(appLogger, ctx, db, redisCache)
-	
-	authRouteInit(appLogger, ctx, authHandler, router)
-	healthRouteInit(appLogger, ctx, router, db, redisClient)
-	eventRouteInit(appLogger, ctx, eventHandler, router, *authMiddleware, *rateLimitMiddleware)
-	swaggerRouteInit(appLogger, ctx, router)
-	userRouteInit(appLogger, ctx, userHandler, router, *authMiddleware)
-    categoryRouteInit(appLogger, ctx, categoryHandler, router, *authMiddleware, *rateLimitMiddleware)
-    
-	
+	applyMiddleware(appLogger, router, middleware)
+
+	mainRoute := newMainRoute(appLogger, ctx, handler, router, middleware)
+	mainRoute.auth()
+	mainRoute.event()
+	mainRoute.user()
+	mainRoute.category()
+
+	sideRoute := newSideRoute(appLogger, ctx, router, db, redisClient)
+	sideRoute.health()
+	sideRoute.swagger()
+
 	startServer(appLogger, ctx, router)
 }
+
+type mainRoute struct {
+	auth func()
+	event func()
+	user func()
+	category func()
+}
+
+type sideRoute struct {
+	health func()
+	swagger func()
+}
+
+func newMainRoute(log *logger.Logger, ctx context.Context, handler *mainHandler, router *chi.Mux, middleware *mainMiddleware) *mainRoute {
+	return &mainRoute{
+		auth: authRouteInit(log, ctx, handler.Auth, router ),
+		event: eventRouteInit(log, ctx, handler.Event, router, middleware.JWT, middleware.RateLimiter),
+		user: userRouteInit(log, ctx, handler.User, router, middleware.JWT),
+		category: categoryRouteInit(log, ctx, handler.Category, router, middleware),
+	}
+}
+
+func newSideRoute(log *logger.Logger, ctx context.Context, router *chi.Mux, db *gorm.DB, redis *redis.Client) *sideRoute {
+	return &sideRoute{
+		health: healthRouteInit(log, ctx, router, db, redis),
+		swagger: swaggerRouteInit(log, ctx, router),
+	}
+}
+
 
 func initLogger() (*logger.Logger, error) {
 	env := os.Getenv("APP_ENV")
@@ -114,41 +145,39 @@ func initLogger() (*logger.Logger, error) {
 	return logger.New(config)
 }
 
-func applyMiddleware(log *logger.Logger, router *chi.Mux) {
+func applyMiddleware(log *logger.Logger, router *chi.Mux, customMiddleware *mainMiddleware) {
 	log.Info(context.Background(), "Applying middleware", nil)
-	
-	// Add our structured logger middleware
-	router.Use(customMiddleware.LoggerMiddleware(log))
-	
-	// Standard middleware
+	router.Use(customMiddleware.Logger.LoggerMiddleware(log))
 	router.Use(middleware.Recoverer)
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
 	router.Use(middleware.Timeout(60 * time.Second))
 }
 
-func healthRouteInit(log *logger.Logger, ctx context.Context, router *chi.Mux, db *gorm.DB, redis *redis.Client) {
-	log.Info(ctx, "Initializing health routes", nil)
+func healthRouteInit(log *logger.Logger, ctx context.Context, router *chi.Mux, db *gorm.DB, redis *redis.Client) func() {
+	return func ()  {
+		log.Info(ctx, "Initializing health routes", nil)
 
-	healthChecker := health.NewHealthChecker("1.0.0")
-	healthChecker.AddChecker(health.NewDatabaseChecker(db))
-	healthChecker.AddChecker(health.NewRedisChecker(redis))
-	healthChecker.AddChecker(health.NewMemoryChecker())
-	healthChecker.AddChecker(health.NewDiskChecker("."))
-
-	router.Get("/api/v1/health", healthChecker.Handler())
-
-	router.Get("/api/v1/health/liveness", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
+		healthChecker := health.NewHealthChecker("1.0.0")
+		healthChecker.AddChecker(health.NewDatabaseChecker(db))
+		healthChecker.AddChecker(health.NewRedisChecker(redis))
+		healthChecker.AddChecker(health.NewMemoryChecker())
+		healthChecker.AddChecker(health.NewDiskChecker("."))
 	
-	router.Get("/api/v1/health/readiness", healthChecker.Handler())
+		router.Get("/api/v1/health", healthChecker.Handler())
+	
+		router.Get("/api/v1/health/liveness", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
+		})
+	
+		router.Get("/api/v1/health/readiness", healthChecker.Handler())		
+	}
 }
 
 func startServer(log *logger.Logger, ctx context.Context, router *chi.Mux) {
 	log.Info(ctx, "Starting server", map[string]interface{}{"port": 8080})
-	
+
 	server := &http.Server{
 		Addr: ":8080",
 		Handler: router,
@@ -163,7 +192,7 @@ func startServer(log *logger.Logger, ctx context.Context, router *chi.Mux) {
 		<-sig
 		shutdownCtx, cancel := context.WithTimeout(serverCtx, 30*time.Second)
 		defer cancel()
-		
+
 		log.Info(shutdownCtx, "Shutting down server", nil)
 
 		go func() {
@@ -177,7 +206,7 @@ func startServer(log *logger.Logger, ctx context.Context, router *chi.Mux) {
 		if err != nil {
 			log.Fatal(shutdownCtx, "Server shutdown failed", err, nil)
 		}
-		
+
 		serverStopCtx()
 	}()
 
@@ -206,12 +235,12 @@ func loadDatabase(log *logger.Logger, ctx context.Context, cfg *config.DatabaseC
 		"port": cfg.Port,
 		"name": cfg.DBName,
 	})
-	
+
 	db, err := database.NewPostgresDB(cfg)
 	if err != nil {
 		log.Fatal(ctx, "Failed to connect to database", err, nil)
 	}
-	
+
 	log.Info(ctx, "Connected to database successfully", nil)
 	return db
 }
@@ -230,43 +259,51 @@ func authHandlerInit(log *logger.Logger, ctx context.Context, db *gorm.DB, cfg *
 	return authHandler
 }
 
-func authRouteInit(log *logger.Logger, ctx context.Context, authHandler handler.AuthHandler, router *chi.Mux) {
-	log.Info(ctx, "Initializing authentication routes", nil)
-	router.Post("/api/v1/auth/register", authHandler.Register)
-	router.Post("/api/v1/auth/login", authHandler.Login)
+func authRouteInit(log *logger.Logger, ctx context.Context, authHandler handler.AuthHandler, router *chi.Mux) func() {
+	return func ()  {
+		log.Info(ctx, "Initializing authentication routes", nil)
+		router.Post("/api/v1/auth/register", authHandler.Register)
+		router.Post("/api/v1/auth/login", authHandler.Login)	
+		
+	}
 }
 
-func eventHandlerInit(log *logger.Logger, ctx context.Context, db *gorm.DB, cfg *cache.RedisCache) handler.EventHandler {
+func eventHandlerInit(log *logger.Logger, ctx context.Context, db *gorm.DB, cfg *cache.RedisCache, categoryRepo repository.CategoryRepository) handler.EventHandler {
 	log.Info(ctx, "Initializing event handler", nil)
 	eventRepo := repository.NewEventRepository(db, cfg)
-	eventService := service.NewEventService(eventRepo)
+	eventService := service.NewEventService(eventRepo, categoryRepo)
 	eventHandler := handler.NewEventHandler(eventService)
 	return eventHandler
 }
 
-func eventRouteInit(log *logger.Logger, ctx context.Context, eventHandler handler.EventHandler, router *chi.Mux, authMiddleware customMiddleware.AuthMiddleware, rateLimitMiddleware customMiddleware.RateLimiter) {
-	log.Info(ctx, "Initializing event routes", nil)
-	router.Group(func(r chi.Router) {
-		r.Get("/api/v1/events", eventHandler.ListEvents)
-		r.Get("/api/v1/events/search", eventHandler.SearchEvents)
-		r.Get("/api/v1/events/{id}", eventHandler.GetEvent)
-	})
+func eventRouteInit(log *logger.Logger, ctx context.Context, eventHandler handler.EventHandler, router *chi.Mux, authMiddleware *customMiddleware.AuthMiddleware, rateLimitMiddleware *customMiddleware.RateLimiter) func() {
+	return func ()  {
+		log.Info(ctx, "Initializing event routes", nil)
+		router.Group(func(r chi.Router) {
+			r.Get("/api/v1/events", eventHandler.ListEvents)
+			r.Get("/api/v1/events/search", eventHandler.SearchEvents)
+			r.Get("/api/v1/events/{id}", eventHandler.GetEvent)
+		})
 
-	//Protected
-	router.Group(func(r chi.Router) {
-		r.Use(authMiddleware.Authenticate)
-		r.Use(rateLimitMiddleware.RateLimit)
-		r.Post("/api/v1/events", eventHandler.CreateEvent)
-		r.Put("/api/v1/events/{id}", eventHandler.UpdateEvent)
-		r.Delete("/api/v1/events/{id}", eventHandler.DeleteEvent)
-	})
+		router.Group(func(r chi.Router) {
+			r.Use(authMiddleware.Authenticate)
+			r.Use(rateLimitMiddleware.RateLimit)
+			r.Post("/api/v1/events", eventHandler.CreateEvent)
+			r.Put("/api/v1/events/{id}", eventHandler.UpdateEvent)
+			r.Delete("/api/v1/events/{id}", eventHandler.DeleteEvent)
+		})
+	
+	}
+
 }
 
-func swaggerRouteInit(log *logger.Logger, ctx context.Context, router *chi.Mux) {
-	log.Info(ctx, "Initializing swagger routes", nil)
-	router.Get("/swagger/*", httpSwagger.Handler(
-		httpSwagger.URL("http://localhost:8080/swagger/doc.json"),
-	))
+func swaggerRouteInit(log *logger.Logger, ctx context.Context, router *chi.Mux) func() {
+	return func ()  {
+		log.Info(ctx, "Initializing swagger routes", nil)
+		router.Get("/swagger/*", httpSwagger.Handler(
+			httpSwagger.URL("http://localhost:8080/swagger/doc.json"),
+		))
+	}
 }
 
 func redisClientInit(log *logger.Logger, ctx context.Context, cfg config.RedisConfig) *redis.Client {
@@ -274,7 +311,7 @@ func redisClientInit(log *logger.Logger, ctx context.Context, cfg config.RedisCo
 		"host": cfg.Host,
 		"port": cfg.Port,
 	})
-	
+
 	return redis.NewClient(&redis.Options{
 		Addr: fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
 		Password: cfg.Password,
@@ -295,7 +332,7 @@ func redisRateLimitMiddleware(log *logger.Logger, ctx context.Context, client *r
 		"request_limit":  cfg.RequestLimit,
 		"window_seconds": cfg.WindowSeconds,
 	})
-	
+
 	return customMiddleware.NewRateLimiter(
 		client,
 		cfg.RequestLimit,
@@ -319,32 +356,105 @@ func categoryHandlerInit(log *logger.Logger, ctx context.Context, db *gorm.DB, r
     return categoryHandler
 }
 
-func userRouteInit(log *logger.Logger, ctx context.Context, userHandler handler.UserHandler, router *chi.Mux, authMiddleware customMiddleware.AuthMiddleware) {
-    log.Info(ctx, "Initializing user routes", nil)
-    
-    router.Group(func(r chi.Router) {
-        r.Use(authMiddleware.Authenticate)
-        r.Put("/api/v1/users/profile", userHandler.UpdateProfile)
-        r.Get("/api/v1/users/profile", userHandler.GetProfile)
-        r.Put("/api/v1/users/password", userHandler.ChangePassword)
-    })
+func userRouteInit(log *logger.Logger, ctx context.Context, userHandler handler.UserHandler, router *chi.Mux, authMiddleware *customMiddleware.AuthMiddleware) func() {
+	return func ()  {
+		log.Info(ctx, "Initializing user routes", nil)
+
+		router.Group(func(r chi.Router) {
+			r.Use(authMiddleware.Authenticate)
+			r.Put("/api/v1/users/profile", userHandler.UpdateProfile)
+			r.Get("/api/v1/users/profile", userHandler.GetProfile)
+			r.Put("/api/v1/users/password", userHandler.ChangePassword)
+		})	
+	}
 }
 
-func categoryRouteInit(log *logger.Logger, ctx context.Context, categoryHandler handler.CategoryHandler, router *chi.Mux, authMiddleware customMiddleware.AuthMiddleware, rateLimitMiddleware customMiddleware.RateLimiter) {
-    log.Info(ctx, "Initializing category routes", nil)
-    
-    // Public routes
-    router.Group(func(r chi.Router) {
-        r.Get("/api/v1/categories", categoryHandler.ListCategories)
-        r.Get("/api/v1/categories/{id}", categoryHandler.GetCategory)
-    })
+func categoryRouteInit(log *logger.Logger, ctx context.Context, categoryHandler handler.CategoryHandler, router *chi.Mux, middleware *mainMiddleware) func() {
+	return func ()  {
+		log.Info(ctx, "Initializing category routes", nil)
 
-    // Protected routes
-    router.Group(func(r chi.Router) {
-        r.Use(authMiddleware.Authenticate)
-        r.Use(rateLimitMiddleware.RateLimit)
-        r.Post("/api/v1/categories", categoryHandler.CreateCategory)
-        r.Put("/api/v1/categories/{id}", categoryHandler.UpdateCategory)
-        r.Delete("/api/v1/categories/{id}", categoryHandler.DeleteCategory)
-    })
+		router.Group(func(r chi.Router) {
+			r.Get("/api/v1/categories", categoryHandler.ListCategories)
+			r.Get("/api/v1/categories/{id}", categoryHandler.GetCategory)
+		})
+	
+		router.Group(func(r chi.Router) {
+			r.Use(middleware.JWT.Authenticate)
+			r.Use(middleware.RateLimiter.RateLimit)
+			r.Post("/api/v1/categories", categoryHandler.CreateCategory)
+			r.Put("/api/v1/categories/{id}", categoryHandler.UpdateCategory)
+			r.Delete("/api/v1/categories/{id}", categoryHandler.DeleteCategory)
+		})	
+	}
 }
+
+type mainRepository struct {
+	User 		repository.UserRepository
+	Event 		repository.EventRepository
+	Category 	repository.CategoryRepository
+}
+
+func newMainRepository(db *gorm.DB, cache *cache.RedisCache) *mainRepository {
+	return &mainRepository{
+		User: 		repository.NewUserRepository(db),
+		Event: 		repository.NewEventRepository(db, cache),
+		Category: 	repository.NewCategoryRepository(db, cache),
+	}
+}
+
+
+type mainService struct {
+	Auth 		service.AuthService
+	User 		service.UserService
+	Category 	service.CategoryService
+	Event 		service.EventService
+}
+
+func newMainService (repository *mainRepository, cfg *config.Config) *mainService {
+	return &mainService{
+		Auth: 		service.NewAuthService(repository.User, &cfg.Auth),
+		User: 		service.NewUserService(repository.User),
+		Category: 	service.NewCategoryService(repository.Category),
+		Event: 		service.NewEventService(repository.Event, repository.Category),
+	}
+}
+
+type mainHandler struct {
+	Auth 		handler.AuthHandler
+	User	 	handler.UserHandler
+	Category 	handler.CategoryHandler
+	Event 		handler.EventHandler
+}
+
+func newMainHandler (service *mainService) *mainHandler {
+	return &mainHandler{
+		Auth: 		handler.NewAuthHandler(service.Auth),
+		User: 		handler.NewUserHandler(service.User),
+		Category: 	handler.NewCategoryHandler(service.Category),
+		Event: 		handler.NewEventHandler(service.Event),
+	}
+}
+
+type mainMiddleware struct {
+	JWT 		*customMiddleware.AuthMiddleware
+	RateLimiter *customMiddleware.RateLimiter
+	Logger 		*customMiddleware.Logger
+
+}
+
+func newMainMiddleware(cfg *config.Config, redis *redis.Client) *mainMiddleware {
+	JWT := customMiddleware.NewAuthMiddleware(
+		cfg.Auth.JWTSecret,
+	)
+
+	RateLimiter := customMiddleware.NewRateLimiter(
+		redis, cfg.RateLimit.RequestLimit, time.Duration(cfg.RateLimit.WindowSeconds),
+	)
+	
+	return &mainMiddleware{
+		JWT: JWT,
+		RateLimiter: RateLimiter,
+		Logger: customMiddleware.NewLogger(),
+	}
+}
+

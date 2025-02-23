@@ -1,20 +1,21 @@
 package service
 
 import (
-    "errors"
-    "time"
+	"time"
 
-    "github.com/golang-jwt/jwt/v5"
-    "github.com/hafiztri123/src/internal/model"
-    "github.com/hafiztri123/src/internal/pkg/config"
-    "github.com/hafiztri123/src/internal/repository"
-    "golang.org/x/crypto/bcrypt"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/hafiztri123/src/internal/model"
+	"github.com/hafiztri123/src/internal/pkg/config"
+	errs "github.com/hafiztri123/src/internal/pkg/error"
+	"github.com/hafiztri123/src/internal/repository"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // AuthService defines the interface for authentication-related service operations.
 type AuthService interface {
     Register(input *model.RegisterInput) error
     Login(input *model.LoginInput) (*model.LoginResponse, error)
+
 }
 
 // AuthService implements the AuthService interface.
@@ -39,13 +40,14 @@ func (s *authService) Register(input *model.RegisterInput) error {
     if err != nil {
         return err
     }
+
     if !emailExist {
-        return errors.New("[FAIL] user already exists")
+        return errs.NewDuplicateEntryError("Duplicate entry")
     }
 
     encryptedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
     if err != nil {
-        return err
+        return errs.NewInternalServerError(err.Error())
     }
 
     user := &model.User{
@@ -64,23 +66,22 @@ func (s *authService) Register(input *model.RegisterInput) error {
     return nil
 }
 
-// Login authenticates a user and generates a JWT token if credentials are valid.
 func (s *authService) Login(input *model.LoginInput) (*model.LoginResponse, error) {
     existingUser, err := s.userRepo.GetByEmail(input.Email)
     if err != nil {
         return nil, err
     }
     if existingUser == nil {
-        return nil, errors.New("[FAIL] user not found")
+        return nil, errs.NewNotFoundError("User not found")
     }
 
     if err := bcrypt.CompareHashAndPassword([]byte(existingUser.Password), []byte(input.Password)); err != nil {
-        return nil, errors.New("[FAIL] invalid credentials")
+        return nil, errs.NewUnauthorizedError("Invalid credentials")
     }
 
     token, err := s.generateToken(existingUser)
     if err != nil {
-        return nil, err
+        return nil, errs.NewInternalServerError(err.Error())
     }
 
     return &model.LoginResponse{

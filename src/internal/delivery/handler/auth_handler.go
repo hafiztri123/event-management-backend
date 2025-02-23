@@ -2,12 +2,12 @@ package handler
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/hafiztri123/src/internal/model"
+	errs "github.com/hafiztri123/src/internal/pkg/error"
 	"github.com/hafiztri123/src/internal/pkg/response"
 	"github.com/hafiztri123/src/internal/service"
 )
@@ -47,34 +47,18 @@ func NewAuthHandler(authService service.AuthService) AuthHandler {
 func (h *authHandler) Register(w http.ResponseWriter, r *http.Request) {
     var input model.RegisterInput
     if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-        respondWithJSON(w, http.StatusBadRequest, response.Response{
-            Timestamp: time.Now(),
-            Message:   "[FAIL] Attempt to parse request has failed. Bad request.",
-        })
+        HandleErrorResponse(w, err)
         return
     }
 
     if err := h.validator.Struct(input); err != nil {
-        respondWithJSON(w, http.StatusBadRequest, response.Response{
-            Timestamp: time.Now(),
-            Message:   "[FAIL] Request was not valid. Bad request.",
-        })
+        HandleErrorResponse(w, errs.NewValidationError("Request is not valid"))
         return
     }
 
     err := h.authService.Register(&input)
     if err != nil {
-        if err.Error() == "[FAIL] user already exists" {
-            respondWithJSON(w, http.StatusConflict, response.Response{
-                Timestamp: time.Now(),
-                Message:   "[FAIL] User already exists. Conflict.",
-            })
-            return
-        }
-        respondWithJSON(w, http.StatusInternalServerError, response.Response{
-            Timestamp: time.Now(),
-            Message:   fmt.Sprintf("[FAIL] %s. Internal server error.", err),
-        })
+        HandleErrorResponse(w, err)
         return
     }
 
@@ -98,34 +82,13 @@ func (h *authHandler) Register(w http.ResponseWriter, r *http.Request) {
 func (h *authHandler) Login(w http.ResponseWriter, r *http.Request) {
     var input model.LoginInput
     if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-        respondWithJSON(w, http.StatusBadRequest, response.Response{
-            Timestamp: time.Now(),
-            Message:   "[FAIL] Attempt to parse request has failed. Bad request.",
-        })
-        return
-    }
-
-    if err := h.validator.Struct(input); err != nil {
-        respondWithJSON(w, http.StatusBadRequest, response.Response{
-            Timestamp: time.Now(),
-            Message:   "[FAIL] Request was not valid. Bad request",
-        })
+        HandleErrorResponse(w, err)
         return
     }
 
     loginResponse, err := h.authService.Login(&input)
     if err != nil {
-        if err.Error() == "[FAIL] user not found" || err.Error() == "[FAIL] invalid credentials" {
-            respondWithJSON(w, http.StatusUnauthorized, response.Response{
-                Timestamp: time.Now(),
-                Message:   "[FAIL] Invalid credentials. Unauthorized",
-            })
-            return
-        }
-        respondWithJSON(w, http.StatusInternalServerError, response.Response{
-            Timestamp: time.Now(),
-            Message:   fmt.Sprintf("[FAIL] %s. Internal server error", err),
-        })
+        HandleErrorResponse(w, err)
         return
     }
 

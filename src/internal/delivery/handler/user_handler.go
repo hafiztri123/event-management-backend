@@ -2,12 +2,12 @@ package handler
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/hafiztri123/src/internal/model"
+	errs "github.com/hafiztri123/src/internal/pkg/error"
 	"github.com/hafiztri123/src/internal/pkg/response"
 	"github.com/hafiztri123/src/internal/service"
 )
@@ -38,18 +38,14 @@ func (h userHandlerImpl) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 
 
 	if err != nil {
-		respondWithJSON(w, 400, response.Response{
-			Timestamp: time.Now(),
-			Message: "[FAIL] fail to parse request. Bad request",
-		})
+        HandleErrorResponse(w, err)
+        return
 	}
 
 	err = h.userService.UpdateProfile(userID, &input)
 	if err != nil {
-		respondWithJSON(w, 500, response.Response{
-			Timestamp: time.Now(),
-			Message: "[FAIL] fail to update profile. Bad request",
-		})
+        HandleErrorResponse(w, err)
+        return
 	}
 
 	respondWithJSON(w, 200, response.Response{
@@ -61,18 +57,14 @@ func (h userHandlerImpl) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 func (h userHandlerImpl) GetProfile(w http.ResponseWriter, r *http.Request){
 	userID := r.Context().Value("user").(jwt.MapClaims)["user_id"].(string)
 	if userID == "" {
-		respondWithJSON(w, 401, response.Response{
-			Timestamp: time.Now(),
-			Message: "[FAIL] Unauthorized",
-		})
+		HandleErrorResponse(w, errs.NewUnauthorizedError("Unauthorized"))
+		return
 	}
 
 	profile, err := h.userService.GetProfile(userID)
 	if err != nil {
-		respondWithJSON(w, 500, response.Response{
-			Timestamp: time.Now(),
-			Message: fmt.Sprintf("[FAIL] fail to get profile: %v", err),
-		})
+        HandleErrorResponse(w, err)
+        return
 	}
 
 	respondWithJSON(w, 200, response.Response{
@@ -85,27 +77,21 @@ func (h userHandlerImpl) GetProfile(w http.ResponseWriter, r *http.Request){
 func (h userHandlerImpl) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user").(jwt.MapClaims)["user_id"].(string)
 	if userID == "" {
-		respondWithJSON(w, 401, response.Response{
-			Timestamp: time.Now(),
-			Message: "[FAIL] Unauthorized",
-		})
+		HandleErrorResponse(w, errs.NewUnauthorizedError("Unauthorized"))
+		return
 	}
 
 	var input model.ChangePasswordInput
 	err := json.NewDecoder(r.Body).Decode(&input)
 	if err != nil {
-		respondWithJSON(w, 400, response.Response{
-			Timestamp: time.Now(),
-			Message: "[FAIL] fail to parse request. Bad request",
-		})
+        HandleErrorResponse(w, err)
+        return
 	}
 
 	err = h.userService.ChangePassword(userID, &input)
 	if err != nil {
-		respondWithJSON(w, 500, response.Response{
-			Timestamp: time.Now(),
-			Message: fmt.Sprintf("[FAIL] fail to change password: %v", err),
-		})
+        HandleErrorResponse(w, err)
+        return
 	}
 
 	respondWithJSON(w, 200, response.Response{

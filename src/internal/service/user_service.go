@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/hafiztri123/src/internal/model"
+	errs "github.com/hafiztri123/src/internal/pkg/error"
 	"github.com/hafiztri123/src/internal/repository"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -30,7 +31,7 @@ func NewUserService(userRepo repository.UserRepository) UserService {
 
 func (s userServiceImpl) UpdateProfile(userID string, input *model.UpdateProfileInput) error {
 	if input == nil {
-		return fmt.Errorf("[FAIL] input is missing")
+		return errs.NewBadRequestError("Request is missing")
 	}
 
 	updatedModel := &model.User{
@@ -44,7 +45,7 @@ func (s userServiceImpl) UpdateProfile(userID string, input *model.UpdateProfile
 	}
 
 	if err := s.userRepo.Update(userID,updatedModel); err != nil {
-		return fmt.Errorf("[FAIL] fail to update user: %v", err)
+		return err
 	}
 
 	return nil
@@ -52,12 +53,12 @@ func (s userServiceImpl) UpdateProfile(userID string, input *model.UpdateProfile
 
 func (s userServiceImpl) GetProfile(userID string) (*model.User, error) {
 	if userID == "" {
-		return nil, fmt.Errorf("[FAIL] id is missing")
+		return nil, errs.NewBadRequestError("Request is missing")
 	}
 
 	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
-		return nil, fmt.Errorf("[FAIL] failed to get user: %v", err)
+		return nil, err
 	}
 
 	return user, nil
@@ -66,40 +67,40 @@ func (s userServiceImpl) GetProfile(userID string) (*model.User, error) {
 func (s userServiceImpl)  ChangePassword(userID string, input *model.ChangePasswordInput) error {
 	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
-		return fmt.Errorf("[FAIL] failed to get current password: %v", err)
+		return err
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.CurrentPassword)); err != nil {
-		return fmt.Errorf("%v", err)
+		return errs.NewForbiddenError("Invalid credentials")
 
 	}
 	currentHashedPassword, err := generateHashPassword(input.CurrentPassword)
 	if err != nil {
-		return fmt.Errorf("%v", err)
+		return errs.NewInternalServerError(err.Error())
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(currentHashedPassword), []byte(input.NewPassword)); err == nil {
-		return fmt.Errorf("[FAIL] New password is the same")
+		return errs.NewDuplicateEntryError("Password cannot be the same as the old password")
 	}
 
 	newHashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.NewPassword), bcrypt.DefaultCost)
 
 	if err != nil {
-		return fmt.Errorf("[FAIL] error in hashing the new password: %v", err)
+		return errs.NewInternalServerError(err.Error())
 	}
 
 	return s.userRepo.ChangePassword(userID, string(newHashedPassword))
 	
 }
 
-// func (s userServiceImpl) UploadProfileImage(userID string, fileInput *model.FileInput) error {
+// func (s userServiceImpl) UploadProfileImage(ctx context.Context, userID string, fileInput *model.FileInput, filename string) error {
 // }
 
 
 func generateHashPassword(password string) (string, error)  {
 	hashedPassword, err :=  bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return "", fmt.Errorf("[FAIL] failed to generate hashed password: %v", err)
+		return "", fmt.Errorf("Password hashing failed: %v", err)
 	}
 
 	return string(hashedPassword), nil

@@ -8,7 +8,15 @@ import (
 	"github.com/hafiztri123/src/internal/pkg/logger"
 )
 
-func LoggerMiddleware(log *logger.Logger) func(next http.Handler) http.Handler {
+type Logger struct {
+
+}
+
+func NewLogger() *Logger {
+	return &Logger{}
+}
+
+func (l *Logger)  LoggerMiddleware(log *logger.Logger) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()

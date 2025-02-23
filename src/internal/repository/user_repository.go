@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/hafiztri123/src/internal/model"
+	errs "github.com/hafiztri123/src/internal/pkg/error"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 )
 
@@ -31,25 +33,22 @@ func NewUserRepository(db *gorm.DB) UserRepository {
 
 func (r *userRepository) GetByID(id string) (*model.User, error) {
     var user model.User
-    result := r.db.Where("id = ?", id).First(&user)
-    if result.Error != nil {
-        if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-            return nil, nil
-        }
-        return nil, result.Error
-    }
+    err := r.db.Where("id = ?", id).First(&user).Error
+
+	if err != nil {
+		return nil, DBError(err)
+	}
+
     return &user, nil
 }
 
 func (r *userRepository) GetByEmail(email string) (*model.User, error) {
     var user model.User
-    result := r.db.Where("email = ?", email).First(&user)
-    if result.Error != nil {
-        if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-            return nil, nil
-        }
-        return nil, result.Error
-    }
+    err := r.db.Where("email = ?", email).First(&user).Error
+	if err != nil {
+		return nil, DBError(err)
+	}
+
     return &user, nil
 }
 
@@ -57,13 +56,14 @@ func (r *userRepository) IsEmailUnique(email string) (bool, error) {
     var emailCount int64
     err := r.db.Model(&model.User{}).Where("email = ?", email).Count(&emailCount).Error
     if err != nil {
-        return false, err
+        return false, DBError(err)
     }
     return emailCount == 0, nil
 }
 
 func (r *userRepository) Create(user *model.User) error {
-    return r.db.Create(user).Error
+    err := r.db.Create(user).Error
+	return DBError(err)
 }
 
 func (r *userRepository) Update(id string, updatedUser *model.User) error {
@@ -71,8 +71,9 @@ func (r *userRepository) Update(id string, updatedUser *model.User) error {
 	
 	userModel := r.db.Model(&model.User{})
 	err := userModel.Where("id = ?", id).First(&existingUser).Error
+	
 	if err != nil {
-		return fmt.Errorf("[FAIL] failed to get user")
+		return DBError(err)
 	}
 
 	if updatedUser.FullName != "" {
@@ -104,19 +105,19 @@ func (r *userRepository) Update(id string, updatedUser *model.User) error {
 	})
 
 	if err != nil {
-		return fmt.Errorf("[FAIL] update user profile failed: %v", err)
+		return DBError(err)
 	}
 
 	return nil
 }
 
 func (r *userRepository) Delete(id string) error {
-    return r.db.Transaction(func(tx *gorm.DB) error {
+    return DBError(r.db.Transaction(func(tx *gorm.DB) error {
         if err := tx.Delete(&model.User{}, "id = ?", id).Error; err != nil {
             return err
         }
         return nil
-    })
+    }))
 }
 
 func (r *userRepository) ChangePassword(id string, password string) error {
@@ -129,7 +130,53 @@ func (r *userRepository) ChangePassword(id string, password string) error {
 		return nil
 	}) 
 	if err != nil {
-		return fmt.Errorf("[FAIL] failed to change password: %v", err)
+		return DBError(err)
 	}
 	return nil
+}
+
+
+
+
+
+func DBError(err error) error {
+    if err == nil {
+        return nil // No error to handle
+    }
+
+    switch {
+    case errors.Is(err, gorm.ErrRecordNotFound):
+        return errs.NewNotFoundError("Record not found")
+
+    case errors.Is(err, gorm.ErrInvalidDB):
+        return errs.NewValidationError("Invalid database operation")
+
+    case errors.Is(err, gorm.ErrInvalidTransaction):
+        return errs.NewValidationError("Invalid transaction")
+
+    case errors.Is(err, gorm.ErrMissingWhereClause):
+        return errs.NewValidationError("Missing WHERE clause in query")
+
+    default:
+        // Check for PostgreSQL-specific errors
+        var pgErr *pgconn.PgError
+        if errors.As(err, &pgErr) {
+            switch pgErr.Code {
+            case "23505": // Unique violation
+                return errs.NewDuplicateEntryError("Duplicate entry: a record with this value already exists")
+
+            case "23503": // Foreign key violation
+                return errs.NewValidationError("Foreign key violation: referenced record does not exist")
+
+            case "23514": // Check violation
+                return errs.NewValidationError("Check constraint violation: invalid data")
+
+            default:
+                return errs.NewDatabaseError(fmt.Sprintf("PostgreSQL error (%s): %s", pgErr.Code, pgErr.Message))
+            }
+        }
+
+        // Handle general database errors
+        return errs.NewDatabaseError(fmt.Sprintf("An unexpected database error occurred: %v", err))
+    }
 }

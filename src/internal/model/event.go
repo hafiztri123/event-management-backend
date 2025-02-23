@@ -34,6 +34,7 @@ type File struct {
 type CreateEventInput struct {
 	Title 		string 		`json:"title" validate:"required"`
 	Description string 		`json:"description"`
+	CategoryID 	string 		`json:"category_id"`
 	StartDate 	time.Time 	`json:"start_date" validate:"required"`
 	EndDate 	time.Time 	`json:"end_date" validate:"required,gtfield=StartDate"`
 }

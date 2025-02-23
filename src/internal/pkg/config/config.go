@@ -36,12 +36,19 @@ type RateLimitConfig struct {
     WindowSeconds   int     `mapstructure:"window_seconds"`
 }
 
+type CloudinaryConfig struct {
+    CloudName   string          `mapstructure:"cloud_name"`
+    ApiKey      string          `mapstructure:"api_key"`
+    ApiSecret   string          `mapstructure:"api_secret"`
+}
+
 type Config struct {
-    Server      ServerConfig    `mapstructure:"server"`
-    Database    DatabaseConfig  `mapstructure:"database"`
-    Auth        AuthConfig      `mapstructure:"auth"`
-    Redis       RedisConfig     `mapstructure:"redis"`
-    RateLimit   RateLimitConfig `mapstructure:"rate_limit"`
+    Server              ServerConfig        `mapstructure:"server"`
+    Database            DatabaseConfig      `mapstructure:"database"`
+    Auth                AuthConfig          `mapstructure:"auth"`
+    Redis               RedisConfig         `mapstructure:"redis"`
+    RateLimit           RateLimitConfig     `mapstructure:"rate_limit"`
+    CloudinaryConfig    CloudinaryConfig    `mapstructure:"cloudinary"`
 
 }
 

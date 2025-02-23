@@ -1,12 +1,12 @@
 package service
 
 import (
-    "context"
-    "errors"
-    "time"
+	"context"
+	"time"
 
-    "github.com/hafiztri123/src/internal/model"
-    "github.com/hafiztri123/src/internal/repository"
+	"github.com/hafiztri123/src/internal/model"
+	errs "github.com/hafiztri123/src/internal/pkg/error"
+	"github.com/hafiztri123/src/internal/repository"
 )
 
 // EventService defines the interface for event-related service operations.
@@ -22,23 +22,35 @@ type EventService interface {
 // eventService implements the EventService interface.
 type eventService struct {
     eventRepository repository.EventRepository
+    categoryRepository repository.CategoryRepository
 }
 
 // NewEventService creates a new instance of EventService.
-func NewEventService(eventRepo repository.EventRepository) EventService {
+func NewEventService(eventRepo repository.EventRepository, categoryRepo repository.CategoryRepository) EventService {
     return &eventService{
         eventRepository: eventRepo,
+        categoryRepository: categoryRepo,
+
     }
 }
 
 // CreateEvent creates a new event using the provided input and creator ID.
 func (s *eventService) CreateEvent(input *model.CreateEventInput, creatorID string) error {
+    bool := s.categoryRepository.IsIDExists(input.CategoryID)
+
+
+    if !bool {
+        return errs.NewNotFoundError("Category not found")
+    }
+
     event := &model.Event{
-        Title:       input.Title,
-        Description: input.Description,
-        StartDate:   input.StartDate,
-        EndDate:     input.EndDate,
-        CreatorID:   creatorID,
+        Title:          input.Title,
+        Description:    input.Description,
+        CategoryID:     input.CategoryID,
+        StartDate:      input.StartDate,
+        EndDate:        input.EndDate,
+        CreatorID:      creatorID,
+        
         CreatedAt:   time.Now(),
         UpdatedAt:   time.Now(),
     }
@@ -55,10 +67,10 @@ func (s *eventService) UpdateEvent(id string, input *model.UpdateEventInput, use
         return err
     }
     if event == nil {
-        return errors.New("[FAIL] event not found")
+        return errs.NewNotFoundError("Event not found")
     }
     if event.CreatorID != userID {
-        return errors.New("[FAIL] unauthorized to modify this event")
+        return errs.NewForbiddenError("Creator ID does not matched the required value")
     }
     event.Title = input.Title
     event.Description = input.Description
@@ -78,10 +90,10 @@ func (s *eventService) DeleteEvent(id string, userID string) error {
         return err
     }
     if event == nil {
-        return errors.New("[FAIL] event not found")
+        return errs.NewNotFoundError("Event not found")
     }
     if event.CreatorID != userID {
-        return errors.New("[FAIL] unauthorized to delete this event")
+        return errs.NewForbiddenError("Creator ID does not matched the required value")
     }
     return s.eventRepository.Delete(context.Background(), id)
 }
@@ -93,7 +105,7 @@ func (s *eventService) GetEvent(id string) (*model.Event, error) {
         return nil, err
     }
     if event == nil {
-        return nil, errors.New("[FAIL] event not found")
+        return nil, errs.NewNotFoundError("Event not found")
     }
     return event, nil
 }
@@ -109,17 +121,21 @@ func (s *eventService) SearchEvents(input *model.SearchEventsInput) (*model.Sear
     if input.Page < 1 {
         input.Page = 1
     }
+
     if input.PageSize < 1 || input.PageSize > 100 {
         input.PageSize = 10
     }
+
     events, totalCount, err := s.eventRepository.Search(context.Background(), input)
     if err != nil {
         return nil, err
     }
+
     totalPages := int(totalCount) / input.PageSize
     if int(totalCount)%input.PageSize > 0 {
         totalPages++
     }
+
     return &model.SearchEventsOutput{
         Events:     events,
         TotalCount: totalCount,

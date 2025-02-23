@@ -3,10 +3,12 @@ package repository
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/hafiztri123/src/internal/model"
 	"github.com/hafiztri123/src/internal/pkg/cache"
+	errs "github.com/hafiztri123/src/internal/pkg/error"
 	"gorm.io/gorm"
 )
 
@@ -17,7 +19,7 @@ type CategoryRepository interface {
 	Delete(ctx context.Context, id string) error
 	GetByID(ctx context.Context, id string) (*model.Category, error)
 	List(ctx context.Context) ([]*model.Category, error)
-	IsIDExists(id string) (bool, error)
+	IsIDExists(id string) (bool)
 }
 
 type categoryRepositoryImpl struct {
@@ -29,7 +31,6 @@ func NewCategoryRepository(db *gorm.DB,  redis *cache.RedisCache) CategoryReposi
 	return &categoryRepositoryImpl{
 		db: db,
 		cache: redis,
-
 	}
 }
 
@@ -38,19 +39,19 @@ func(r *categoryRepositoryImpl) Create(ctx context.Context, category *model.Cate
 	
 	err := model.Create(category).Error
 	if err != nil {
-		return fmt.Errorf("[FAIL] Failed to create event: %v", err)
+		return DBError(err)
 	}
 
 	listKeysPattern := "categories:list:*"
 	keys, err := r.cache.Client.Keys(ctx, listKeysPattern).Result()
 	if err != nil {
-		return fmt.Errorf("[FAIL] Failed to get list cache keys: %v", err)
+		log.Printf("%s: %v", CACHE_KEYS_FAIL, err)
 	}
 
 	for _, key := range keys {
 		err = r.cache.Delete(ctx, key)
 		if err != nil {
-			return fmt.Errorf("[FAIL] failed to invalidate list cache: %v", err)
+			log.Printf("%s: %v", CACHE_DELETE_FAIL, err)
 		} 
 	}
 
@@ -59,14 +60,14 @@ func(r *categoryRepositoryImpl) Create(ctx context.Context, category *model.Cate
 
 func (r *categoryRepositoryImpl) Update(ctx context.Context, category *model.Category) error {
 	if category == nil {
-		return fmt.Errorf("[FAIL] Update request is empty")
+		return errs.NewBadRequestError("")
 	}
 
 	var existingCategory model.Category
 	model := r.db.Model(&model.Category{})
 	err := model.Where("id = ?", category.ID).First(&existingCategory).Error
 	if err != nil {
-		return fmt.Errorf("[FAIL] failed to get existing category: %v", err)
+		return DBError(err)
 	}
 
 	if category.Name != "" {
@@ -90,25 +91,25 @@ func (r *categoryRepositoryImpl) Update(ctx context.Context, category *model.Cat
 	})
 
 	if err != nil {
-		return fmt.Errorf("[FAIL] failed to update existing category: %v", err)
+		return DBError(err)
 	}
 
 	cacheKey := fmt.Sprintf("categories:%s", existingCategory.ID)
 	err = r.cache.Set(ctx, cacheKey, existingCategory, 30*time.Minute)
 	if err != nil {
-		return fmt.Errorf("[FAIL] fail to update categories cache: %v", err)
+		log.Printf("%s: %v", CACHE_SET_FAIL, err)
 	}
 
 	listKeysPattern := "events:list:*"
 	keys, err := r.cache.Client.Keys(ctx, listKeysPattern).Result()
 	if err != nil {
-		return fmt.Errorf("[FAIL] failed to get list cache categories keys: %v", err)
+		log.Printf("%s: %v", CACHE_KEYS_FAIL ,err)
 	}
 
 	for _, key := range keys {
 		err := r.cache.Delete(ctx, key)
 		if err != nil {
-			return fmt.Errorf("[FAIL] failed to invalidate cache categories keys: %v", err)
+			log.Printf("%s: %v",CACHE_DELETE_FAIL, err)
 		}
 	}
 
@@ -125,25 +126,25 @@ func (r *categoryRepositoryImpl) Delete(ctx context.Context, categoryID string) 
 	})
 
 	if err != nil {
-		return fmt.Errorf("[FAIL] fail to delete transaction: %v", err)
+		return DBError(err)
 	}
 
 	cacheKey := fmt.Sprintf("categories:%s", categoryID)
 	err = r.cache.Delete(ctx, cacheKey)
 	if err != nil {
-		return fmt.Errorf("[FAIL] failed to delete categories cache: %v", err)
+		log.Printf("%s: %v",CACHE_DELETE_FAIL,err)
 	}
 
 	listKeysPattern := "categories:list:*"
 	keys, err := r.cache.Client.Keys(ctx, listKeysPattern).Result()
 	if err != nil {
-		return fmt.Errorf("[FAIL] failed to get list cache keys: %v", err)
+		log.Printf("%s: %v",CACHE_KEYS_FAIL, err)
 	}
 
 	for _, key := range keys {
 		err = r.cache.Delete(ctx, key)
 		if err != nil {
-			return fmt.Errorf("[FAIL] failed to invalidate list cache: %v", err)
+			return fmt.Errorf("%s: %v",CACHE_DELETE_FAIL, err)
 		}
 	}
 
@@ -156,13 +157,14 @@ func (r *categoryRepositoryImpl) GetByID(ctx context.Context, id string) (*model
 	category := r.db.Model(&model.Category{})
 	err := category.Where("id = ?", id).First(&existingCategory).Error
 	if err != nil {
-		return nil,  fmt.Errorf("[FAIL] failed to get category: %v", err)
+		return nil,  DBError(err)
 	}
 
 	cacheKey := fmt.Sprintf("categories:%s", id)
 	err = r.cache.Set(ctx, cacheKey, existingCategory, 30*time.Minute)
+
 	if err != nil {
-		return nil, fmt.Errorf("[FAIL] failed to set cache for categories: %v", err)
+		log.Printf("%s: %v",CACHE_SET_FAIL, err)
 	}
 	return &existingCategory, nil
 }
@@ -172,27 +174,26 @@ func (r *categoryRepositoryImpl) List(ctx context.Context) ([]*model.Category, e
 	category := r.db.Model(&model.Category{})
 	err := category.Find(&existingCategories).Error
 	if err != nil{
-		return nil, fmt.Errorf("[FAIL] failed to get list of categories: %v", err)
+		return nil, DBError(err)
 	}
 
 	listKeysPattern := "categories:list"
 	err = r.cache.Set(ctx, listKeysPattern, existingCategories, 30*time.Minute)
+
 	if err != nil {
-		return nil, fmt.Errorf("[FAIL] failed to set list of categories cache: %v", err)
+		log.Printf("%s: %v",CACHE_SET_FAIL, err)
 	}
 
 	return existingCategories, nil
 } 
 
-func (r *categoryRepositoryImpl) IsIDExists(id string) (bool, error) {
+func (r *categoryRepositoryImpl) IsIDExists(id string) (bool) {
 	var idCount int64
 	model := r.db.Model(&model.Category{})
-	err := model.Where("id = ?", id).Count(&idCount).Error
-	if err != nil {
-		return false, err
-	}
-	return idCount > 0, nil
+	model.Where("id = ?", id).Count(&idCount)
+	return idCount > 0
 }
+
 
 
 
