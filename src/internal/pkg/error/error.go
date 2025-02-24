@@ -164,3 +164,19 @@ func NewUnauthorizedError(message string) *UnauthorizedError {
         Message: message,
     }
 }
+
+type EntityTooLargeError struct {
+    Code    int
+    Message string
+}
+
+func (e *EntityTooLargeError) Error() string {
+    return fmt.Sprintf("[%d] %s", e.Code, e.Message)
+}
+
+func NewEntityTooLargeError(message string) *EntityTooLargeError {
+    return &EntityTooLargeError{
+        Code: 413,
+        Message: message,
+    }
+}

@@ -17,7 +17,7 @@ type UserHandler interface {
     UpdateProfile(w http.ResponseWriter, r *http.Request)
     GetProfile(w http.ResponseWriter, r *http.Request)
     ChangePassword(w http.ResponseWriter, r *http.Request)
-    // UploadProfileImage(w http.ResponseWriter, r *http.Request)
+    UploadProfileImage(w http.ResponseWriter, r *http.Request)
 }
 
 type userHandlerImpl struct {
@@ -97,4 +97,47 @@ func (h userHandlerImpl) ChangePassword(w http.ResponseWriter, r *http.Request) 
 	respondWithJSON(w, 200, response.Response{
 		Timestamp: time.Now(),
 	})
+}
+
+func (h userHandlerImpl) UploadProfileImage(w http.ResponseWriter, r *http.Request) {
+	UserID := r.Context().Value("user").(jwt.MapClaims)["user_id"].(string)
+
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		HandleErrorResponse(w, errs.NewBadRequestError("File too large"))
+		return
+	}
+
+	
+
+	file, header, err := r.FormFile("image")
+	if err != nil {
+		HandleErrorResponse(w, errs.NewBadRequestError("Invalid file"))
+		return
+	}
+	defer file.Close()
+
+	if header.Size > int64(10 << 20) { 
+        HandleErrorResponse(w, errs.NewEntityTooLargeError("File too large"))
+        return
+    }
+
+	if !isValidImageType(header.Header.Get("Content-Type")) {
+		HandleErrorResponse(w, errs.NewBadRequestError("Invalid file type"))
+		return
+	}
+
+	if err := h.userService.UploadProfileImage(r.Context(), UserID, file, header.Filename); err != nil {
+		HandleErrorResponse(w, err)
+	}
+
+	respondWithJSON(w, http.StatusOK, response.Response{
+		Timestamp: time.Now(),
+	})
+
+}
+
+func isValidImageType(contentType string) bool {
+    return contentType == "image/jpeg" || 
+           contentType == "image/png" || 
+           contentType == "image/gif"
 }

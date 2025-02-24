@@ -19,6 +19,7 @@ type UserRepository interface {
     Update(id string, updatedUser *model.User) error
     Delete(id string) error
 	ChangePassword(id string, password string) error
+	ChangePhotoProfile(id string, imageURL string) error
 }
 
 type userRepository struct {
@@ -132,6 +133,20 @@ func (r *userRepository) ChangePassword(id string, password string) error {
 	if err != nil {
 		return DBError(err)
 	}
+	return nil
+
+}
+
+func (r *userRepository) ChangePhotoProfile(id string, PhotoProfileURL string) error {
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		err := tx.Model(&model.User{}).Where("id = ?", id).Update("profile_image", PhotoProfileURL).Error
+		return err
+	})
+
+	if err != nil {
+		return DBError(err)
+	}
+
 	return nil
 }
 

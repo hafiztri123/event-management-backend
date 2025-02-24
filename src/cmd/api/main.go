@@ -20,6 +20,7 @@ import (
 	"github.com/hafiztri123/src/internal/pkg/health"
 	"github.com/hafiztri123/src/internal/pkg/logger"
 	customMiddleware "github.com/hafiztri123/src/internal/pkg/middleware"
+	"github.com/hafiztri123/src/internal/pkg/storage"
 	"github.com/hafiztri123/src/internal/repository"
 	"github.com/hafiztri123/src/internal/repository/postgres"
 	"github.com/hafiztri123/src/internal/service"
@@ -251,13 +252,6 @@ func startMigration(log *logger.Logger, ctx context.Context, db *gorm.DB) {
 	log.Info(ctx, "Database migrations completed", nil)
 }
 
-func authHandlerInit(log *logger.Logger, ctx context.Context, db *gorm.DB, cfg *config.Config) handler.AuthHandler {
-	log.Info(ctx, "Initializing auth handler", nil)
-	userRepo := repository.NewUserRepository(db)
-	authService := service.NewAuthService(userRepo, &cfg.Auth)
-	authHandler := handler.NewAuthHandler(authService)
-	return authHandler
-}
 
 func authRouteInit(log *logger.Logger, ctx context.Context, authHandler handler.AuthHandler, router *chi.Mux) func() {
 	return func ()  {
@@ -268,13 +262,6 @@ func authRouteInit(log *logger.Logger, ctx context.Context, authHandler handler.
 	}
 }
 
-func eventHandlerInit(log *logger.Logger, ctx context.Context, db *gorm.DB, cfg *cache.RedisCache, categoryRepo repository.CategoryRepository) handler.EventHandler {
-	log.Info(ctx, "Initializing event handler", nil)
-	eventRepo := repository.NewEventRepository(db, cfg)
-	eventService := service.NewEventService(eventRepo, categoryRepo)
-	eventHandler := handler.NewEventHandler(eventService)
-	return eventHandler
-}
 
 func eventRouteInit(log *logger.Logger, ctx context.Context, eventHandler handler.EventHandler, router *chi.Mux, authMiddleware *customMiddleware.AuthMiddleware, rateLimitMiddleware *customMiddleware.RateLimiter) func() {
 	return func ()  {
@@ -326,35 +313,8 @@ func redisCacheInit(log *logger.Logger, ctx context.Context, client *redis.Clien
 	return cache.NewRedisCache(client, cfg)
 }
 
-func redisRateLimitMiddleware(log *logger.Logger, ctx context.Context, client *redis.Client, cfg config.RateLimitConfig) *customMiddleware.RateLimiter {
-	log.Info(ctx, "Initializing rate limiter middleware", map[string]interface{}{
-		"enabled":        cfg.Enabled,
-		"request_limit":  cfg.RequestLimit,
-		"window_seconds": cfg.WindowSeconds,
-	})
 
-	return customMiddleware.NewRateLimiter(
-		client,
-		cfg.RequestLimit,
-		time.Duration(cfg.WindowSeconds),
-	)
-}
 
-func userHandlerInit(log *logger.Logger, ctx context.Context, db *gorm.DB) handler.UserHandler {
-    log.Info(ctx, "Initializing user handler", nil)
-    userRepo := repository.NewUserRepository(db)
-    userService := service.NewUserService(userRepo)
-    userHandler := handler.NewUserHandler(userService)
-    return userHandler
-}
-
-func categoryHandlerInit(log *logger.Logger, ctx context.Context, db *gorm.DB, redisCache *cache.RedisCache) handler.CategoryHandler {
-    log.Info(ctx, "Initializing category handler", nil)
-    categoryRepo := repository.NewCategoryRepository(db, redisCache)
-    categoryService := service.NewCategoryService(categoryRepo)
-    categoryHandler := handler.NewCategoryHandler(categoryService)
-    return categoryHandler
-}
 
 func userRouteInit(log *logger.Logger, ctx context.Context, userHandler handler.UserHandler, router *chi.Mux, authMiddleware *customMiddleware.AuthMiddleware) func() {
 	return func ()  {
@@ -365,6 +325,7 @@ func userRouteInit(log *logger.Logger, ctx context.Context, userHandler handler.
 			r.Put("/api/v1/users/profile", userHandler.UpdateProfile)
 			r.Get("/api/v1/users/profile", userHandler.GetProfile)
 			r.Put("/api/v1/users/password", userHandler.ChangePassword)
+			r.Put("/api/v1/users/profile-image", userHandler.UploadProfileImage)
 		})	
 	}
 }
@@ -411,9 +372,15 @@ type mainService struct {
 }
 
 func newMainService (repository *mainRepository, cfg *config.Config) *mainService {
+
+	cloudinary, err := storage.NewCloudinaryService(cfg)
+	if err != nil {
+		log.Fatal("Cloudinary failed")
+	}
+	
 	return &mainService{
 		Auth: 		service.NewAuthService(repository.User, &cfg.Auth),
-		User: 		service.NewUserService(repository.User),
+		User: 		service.NewUserService(repository.User, cloudinary),
 		Category: 	service.NewCategoryService(repository.Category),
 		Event: 		service.NewEventService(repository.Event, repository.Category),
 	}

@@ -88,6 +88,17 @@ func HandleErrorResponse(w http.ResponseWriter, err error) {
         return
     }
 
+    var EntityTooLargeErr  *errs.EntityTooLargeError
+    if errors.As(err, &EntityTooLargeErr) {
+        respondWithJSON(w, unauthorizedErr.Code, Response{
+            Timestamp: time.Now(),
+            Code: unauthorizedErr.Code,
+            Message: unauthorizedErr.Message,
+        })
+        return
+    }
+
+
     // Default response for unexpected errors
     respondWithJSON(w, http.StatusInternalServerError, Response{
         Timestamp: time.Now(),

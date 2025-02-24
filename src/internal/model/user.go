@@ -32,8 +32,3 @@ type ChangePasswordInput struct {
     NewPassword     string `json:"new_password" validate:"required,min=6"`
 }
 
-type FileInput struct {
-    FileName string
-    FileType string
-    FileData []byte
-}
