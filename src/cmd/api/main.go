@@ -25,6 +25,7 @@ import (
 	"github.com/hafiztri123/src/internal/repository/postgres"
 	"github.com/hafiztri123/src/internal/service"
 	"github.com/redis/go-redis/v9"
+	"github.com/rs/cors"
 	httpSwagger "github.com/swaggo/http-swagger"
 	"gorm.io/gorm"
 )
@@ -147,6 +148,7 @@ func initLogger() (*logger.Logger, error) {
 }
 
 func applyMiddleware(log *logger.Logger, router *chi.Mux, customMiddleware *mainMiddleware) {
+	router.Use(corsMiddleware())
 	log.Info(context.Background(), "Applying middleware", nil)
 	router.Use(customMiddleware.Logger.LoggerMiddleware(log))
 	router.Use(middleware.Recoverer)
@@ -425,3 +427,13 @@ func newMainMiddleware(cfg *config.Config, redis *redis.Client) *mainMiddleware 
 	}
 }
 
+func corsMiddleware() func(http.Handler) http.Handler {
+    return cors.New(cors.Options{
+        AllowedOrigins:   []string{"http://localhost:5173"}, // Replace with your frontend URL(s)
+        AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+        AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+        ExposedHeaders:   []string{"Link"},
+        AllowCredentials: true,
+        MaxAge:           300, 
+    }).Handler
+}
