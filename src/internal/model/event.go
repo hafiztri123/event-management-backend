@@ -72,4 +72,10 @@ type SearchEventsOutput struct {
 	TotalPages 	int 			`json:"total_pages"`
 }
 
+type UploadFile struct {
+	FileName 	string 		`gorm:"type:varchar(255);not null" json:"file_name"`
+	FileType 	string 		`gorm:"type:varchar(100);not null" json:"file_type"`
+}
+
+
 	

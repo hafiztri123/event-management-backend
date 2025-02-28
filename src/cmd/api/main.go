@@ -280,6 +280,7 @@ func eventRouteInit(log *logger.Logger, ctx context.Context, eventHandler handle
 			r.Post("/api/v1/events", eventHandler.CreateEvent)
 			r.Put("/api/v1/events/{id}", eventHandler.UpdateEvent)
 			r.Delete("/api/v1/events/{id}", eventHandler.DeleteEvent)
+			r.Post("/api/v1/events/{id}/upload", eventHandler.UploadFile)
 		})
 	
 	}
@@ -384,7 +385,7 @@ func newMainService (repository *mainRepository, cfg *config.Config) *mainServic
 		Auth: 		service.NewAuthService(repository.User, &cfg.Auth),
 		User: 		service.NewUserService(repository.User, cloudinary),
 		Category: 	service.NewCategoryService(repository.Category),
-		Event: 		service.NewEventService(repository.Event, repository.Category),
+		Event: 		service.NewEventService(repository.Event, repository.Category, cloudinary),
 	}
 }
 

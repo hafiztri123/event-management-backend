@@ -23,6 +23,7 @@ type EventHandler interface {
     GetEvent(w http.ResponseWriter, r *http.Request)
     ListEvents(w http.ResponseWriter, r *http.Request)
     SearchEvents(w http.ResponseWriter, r *http.Request)
+    UploadFile(w http.ResponseWriter, r *http.Request)
 }
 
 // eventHandler implements the EventHandler interface.
@@ -287,4 +288,39 @@ func (h *eventHandler) SearchEvents(w http.ResponseWriter, r *http.Request) {
         Data:      result,
     })
 }
+
+func (h *eventHandler) UploadFile(w http.ResponseWriter, r *http.Request) {
+    eventID := chi.URLParam(r, "id")
+
+    if err := r.ParseMultipartForm(10 << 20); err != nil {
+		HandleErrorResponse(w, errs.NewBadRequestError("File too large"))
+		return
+	}
+
+    file, header, err := r.FormFile("file")
+    if err != nil {
+		HandleErrorResponse(w, errs.NewBadRequestError("Invalid file"))
+		return
+	}
+	defer file.Close()
+
+	if header.Size > int64(10 << 20) { 
+        HandleErrorResponse(w, errs.NewEntityTooLargeError("File too large"))
+        return
+    }
+
+    if err := h.eventService.UploadFile(r.Context(), file, model.UploadFile{
+        FileName: header.Filename,
+        FileType: header.Header.Get("Content-Type"),
+    }, eventID); err != nil {
+        HandleErrorResponse(w, err)
+    }
+
+    respondWithJSON(w, http.StatusOK, response.Response{
+        Timestamp: time.Now(),
+    })
+
+
+}
+
 

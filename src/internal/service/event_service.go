@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"mime/multipart"
 	"time"
 
 	"github.com/hafiztri123/src/internal/model"
 	errs "github.com/hafiztri123/src/internal/pkg/error"
+	"github.com/hafiztri123/src/internal/pkg/storage"
 	"github.com/hafiztri123/src/internal/repository"
 )
 
@@ -17,19 +19,22 @@ type EventService interface {
     GetEvent(id string) (*model.Event, error)
     ListEvents(input *model.ListEventsInput) ([]*model.Event, error)
     SearchEvents(input *model.SearchEventsInput) (*model.SearchEventsOutput, error)
+    UploadFile(ctx context.Context,  file multipart.File,input model.UploadFile , eventID string) error
 }
 
 // eventService implements the EventService interface.
 type eventService struct {
     eventRepository repository.EventRepository
     categoryRepository repository.CategoryRepository
+    cloudinary storage.StorageService
 }
 
 // NewEventService creates a new instance of EventService.
-func NewEventService(eventRepo repository.EventRepository, categoryRepo repository.CategoryRepository) EventService {
+func NewEventService(eventRepo repository.EventRepository, categoryRepo repository.CategoryRepository, cloudinary storage.StorageService) EventService {
     return &eventService{
         eventRepository: eventRepo,
         categoryRepository: categoryRepo,
+        cloudinary: cloudinary,
 
     }
 }
@@ -143,4 +148,30 @@ func (s *eventService) SearchEvents(input *model.SearchEventsInput) (*model.Sear
         PageSize:   input.PageSize,
         TotalPages: totalPages,
     }, nil
+}
+
+
+func (s *eventService ) UploadFile(ctx context.Context, file multipart.File,input model.UploadFile ,eventID string) error {
+
+    fileURL, err := s.cloudinary.UploadFile(ctx, file, input.FileName)
+    if err != nil {
+        return err
+    }
+
+    fileModel := &model.File{
+        EventID: eventID,
+        FileName: input.FileName,
+        FileType: input.FileType,
+        FileURL: fileURL,
+        CreatedAt: time.Now(),
+    }
+
+    err = s.eventRepository.UploadFile(ctx, fileModel)
+    if err != nil {
+        return err
+    }
+
+    return nil
+
+
 }

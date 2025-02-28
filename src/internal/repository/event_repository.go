@@ -19,6 +19,7 @@ type EventRepository interface {
     Update(ctx context.Context, event *model.Event) error
     Delete(ctx context.Context, id string) error
     Search(ctx context.Context, params *model.SearchEventsInput) ([]*model.Event, int64, error)
+    UploadFile(ctx context.Context, file *model.File) error
 }
 
 type eventRepository struct {
@@ -255,4 +256,43 @@ func (r *eventRepository) Search(ctx context.Context, params *model.SearchEvents
     }
 
     return events, totalCount, nil
+}
+
+func (r *eventRepository) UploadFile(ctx context.Context, file *model.File) error{
+    err := r.db.Transaction(func(tx *gorm.DB) error {
+        return r.db.Model(&model.File{}).Save(file).Error
+    })
+
+    if err != nil {
+        return DBError(err)
+    }
+
+    cacheKey := fmt.Sprintf("events:%s", file.EventID)
+    event, err := r.GetByID(ctx, file.EventID)
+
+    if err != nil {
+        return err
+    }
+    
+    err = r.cache.Set(ctx, cacheKey, event, 30*time.Minute)
+    if err != nil {
+        log.Printf("%s: %v", CACHE_SET_FAIL, err)
+     }
+
+     listCacheKeys := "event:list:*"
+     keys, err := r.cache.Client.Keys(ctx, listCacheKeys).Result()
+
+     if err != nil {
+        log.Printf("%s: %v", CACHE_KEYS_FAIL, err)
+     }
+
+     for _, key := range keys {
+        err := r.cache.Delete(ctx, key)
+        if err != nil {
+            log.Printf("%s: %v", CACHE_DELETE_FAIL, err)
+        }
+     }
+
+     return nil
+
 }
